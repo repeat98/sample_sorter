@@ -34,7 +34,7 @@ MIN_SAMPLES_PER_CLASS = 5  # Minimum samples required per class
 
 # Supported audio file extensions
 AUDIO_EXTENSIONS = (
-    '.wav', '.mp3', '.flac', '.ogg', '.aiff', '.aif', 
+    '.wav', '.mp3', '.flac', '.ogg', '.aiff', '.aif',
     '.aac', '.wma', '.m4a', '.alac', '.opus', '.mid', '.midi'
 )
 
@@ -45,18 +45,18 @@ def augment_audio(signal, sample_rate):
         # Time Stretch
         stretch_rate = np.random.uniform(0.8, 1.2)
         stretched_signal = librosa.effects.time_stretch(signal, stretch_rate)
-        
+
         # Pitch Shift
         n_steps = np.random.randint(-5, 5)
         pitched_signal = librosa.effects.pitch_shift(stretched_signal, sample_rate, n_steps)
-        
+
         # Add Noise
         noise = np.random.randn(len(pitched_signal))
         augmented_signal = pitched_signal + 0.005 * noise
-        
+
         # Volume Control
         augmented_signal = augmented_signal * np.random.uniform(0.8, 1.2)
-        
+
         # Time Cropping or Padding
         if len(augmented_signal) > SAMPLES_PER_TRACK:
             start = np.random.randint(0, len(augmented_signal) - SAMPLES_PER_TRACK)
@@ -64,7 +64,7 @@ def augment_audio(signal, sample_rate):
         else:
             pad_width = SAMPLES_PER_TRACK - len(augmented_signal)
             augmented_signal = np.pad(augmented_signal, (0, pad_width), 'constant')
-        
+
         return augmented_signal
     except Exception as e:
         print(f"Error during augmentation: {e}")
@@ -81,9 +81,17 @@ def load_audio_files(dataset_path, sample_rate, duration, audio_extensions, augm
         for file in files:
             if file.lower().endswith(audio_extensions):
                 file_path = os.path.join(root, file)
-                # Extract label based on the leaf folder
-                label = os.path.basename(root)
-                
+                # Extract labels based on grandparent and parent directories
+                # Assuming the structure is /dataset/train/Loops/Sounds/Bass/
+                parts = file_path.split(os.sep)
+                if len(parts) >= 3:
+                    parent_folder = parts[-3]
+                    category_folder = parts[-2]
+                    label = f"{parent_folder}_{category_folder}"
+                else:
+                    # Handle cases where the directory structure is not as expected
+                    label = os.path.basename(root)
+
                 # Load audio file
                 try:
                     signal, sr = librosa.load(file_path, sr=sample_rate)
@@ -92,14 +100,14 @@ def load_audio_files(dataset_path, sample_rate, duration, audio_extensions, augm
                     else:
                         pad_width = max_len - len(signal)
                         signal = np.pad(signal, (0, pad_width), 'constant')
-                    
+
                     if augment:
                         augmented_signal = augment_audio(signal, sr)
                         if augmented_signal is not None:
                             signal = augmented_signal
                         else:
                             print(f"Skipping augmentation for {file_path} due to previous error.")
-                    
+
                     X.append(signal)
                     labels.append(label)
                     success_count += 1
@@ -176,7 +184,7 @@ def extract_features(X, sample_rate, n_mels, hop_length, n_fft, n_mfcc=13):
     mfccs = []
     for x in X:
         try:
-            mfcc = librosa.feature.mfcc(y=x, sr=sample_rate, n_mfcc=n_mfcc, 
+            mfcc = librosa.feature.mfcc(y=x, sr=sample_rate, n_mfcc=n_mfcc,
                                         n_mels=n_mels, hop_length=hop_length, n_fft=n_fft)
             mfcc = librosa.power_to_db(mfcc, ref=np.max)
             mfccs.append(mfcc)
@@ -333,13 +341,13 @@ def plot_confusion_matrix(y_true, y_pred, classes):
     plt.yticks(tick_marks, classes)
 
     # Normalize the confusion matrix.
-    cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+    cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
 
-    thresh = cm.max() / 2.
+    thresh = cm_normalized.max() / 2.
     for i, j in np.ndindex(cm.shape):
-        plt.text(j, i, f"{cm[i, j]:.2f}",
+        plt.text(j, i, f"{cm_normalized[i, j]:.2f}",
                  horizontalalignment="center",
-                 color="white" if cm[i, j] > thresh else "black")
+                 color="white" if cm_normalized[i, j] > thresh else "black")
 
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
