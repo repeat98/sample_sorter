@@ -188,7 +188,7 @@ Use the organizing script to categorize and organize your audio samples.
 - **Usage**:
 
   ```bash
-  python organize_samples.py /path/to/input_folder /path/to/output_folder
+  python classify.py /path/to/input_folder /path/to/output_folder
   ```
 
 - **Arguments**:
