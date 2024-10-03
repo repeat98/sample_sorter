@@ -1,0 +1,6 @@
+essentia_models/
+.wav
+# Ignore all .wav files
+*.wav
+dataset/
+venv/
