@@ -4,3 +4,4 @@ essentia_models/
 *.wav
 dataset/
 venv/
+.DS_Store
