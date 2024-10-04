@@ -4,7 +4,6 @@ import argparse
 import sys
 import math
 from tqdm import tqdm
-import essentia.standard as ess
 import librosa
 import numpy as np
 import logging
@@ -19,82 +18,46 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Define substrings for each class. These should be lowercase for case-insensitive matching.
+# Supported audio file extensions
+AUDIO_EXTENSIONS = (
+    '.wav', '.mp3', '.aiff', '.flac', '.ogg', '.m4a',
+    '.aac', '.wma', '.alac', '.opus'
+)
+
+# Define substrings for each class, keys match the desired directory paths
 filename_substrings = {
     # Loops/Drums
-    'Breakbeat': ['breakbeat', 'break', 'drum break'],
-    'Hihat': ['hihat', 'hi-hat', 'hat', 'closed hat', 'open hat'],
-    'Percussion': ['perc loop', 'percussion loop', 'shaker loop', 'tambourine loop'],
+    'Loops/Drums/Full Drum Loop': ['breakbeat', 'break', 'drum break', 'full drum loop'],
+    'Loops/Drums/Hihat': ['hihat loop', 'hi-hat loop', 'hat loop', 'closed hat loop', 'open hat loop'],
+    'Loops/Drums/Percussion': ['perc loop', 'percussion loop', 'shaker loop', 'tambourine loop'],
 
     # Loops/Sounds
-    'Bass': ['bass loop', 'bassline loop', 'sub bass loop'],
-    'Chords': ['chord loop', 'chords loop', 'keyboard loop', 'piano loop', 'synth chords loop'],
-    'FX': ['fx loop', 'effects loop', 'sfx loop', 'reverb loop', 'delay loop', 'echo loop'],
-    'Synth': ['synth loop', 'synthesizer loop', 'pad loop'],
-    'Voice': ['voice loop', 'vocals loop', 'vocal loop', 'singing loop'],
+    'Loops/Sounds/Bass': ['bass loop', 'bassline loop', 'sub bass loop'],
+    'Loops/Sounds/Chords': ['chord loop', 'chords loop', 'keyboard loop', 'piano loop', 'synth chords loop'],
+    'Loops/Sounds/Synth': ['synth loop', 'synthesizer loop', 'pad loop'],
+    'Loops/Sounds/Voice': ['voice loop', 'vocals loop', 'vocal loop', 'singing loop'],
 
     # Oneshots/Drums
-    'Clap': ['clap', 'handclap', 'hand clap', 'snap'],
-    'Cymbal': ['cymbal', 'china', 'ride cymbal', 'splash cymbal'],
-    'Hand Percussion': ['bongo', 'conga', 'djembe', 'cajon', 'tabla', 'hand drum', 'bata', 'claves', 'cowbell'],
-    'Hihat': ['hihat', 'hi-hat', 'hat', 'closed hat', 'open hat'],
-    'Kick': ['kick', 'bass drum', 'bd', 'kick drum'],
-    'Percussion': ['perc', 'percussion', 'shaker', 'tambourine'],
-    'Snare': ['snare', 'snr', 'rimshot', 'brushes'],
-    'Tom': ['tom', 'toms', 'floor tom', 'rack tom'],
+    'Oneshots/Drums/Clap': ['clap', 'handclap', 'hand clap', 'snap'],
+    'Oneshots/Drums/Cymbal': ['cymbal', 'china', 'ride cymbal', 'splash cymbal'],
+    'Oneshots/Drums/Hand Percussion': ['bongo', 'conga', 'djembe', 'cajon', 'tabla', 'hand drum', 'bata', 'claves', 'cowbell'],
+    'Oneshots/Drums/Hihat': ['hihat', 'hi-hat', 'hat', 'closed hat', 'open hat'],
+    'Oneshots/Drums/Kick': ['kick', 'bass drum', 'bd', 'kick drum'],
+    'Oneshots/Drums/Percussion': ['perc', 'percussion', 'shaker', 'tambourine'],
+    'Oneshots/Drums/Snare': ['snare', 'snr', 'rimshot', 'brushes'],
+    'Oneshots/Drums/Tom': ['tom', 'toms', 'floor tom', 'rack tom'],
 
     # Oneshots/Sounds
-    'Ambience & FX': ['ambience', 'ambient', 'fx', 'atmosphere', 'background noise'],
-    'Bass': ['bass', 'bassline', 'sub bass'],
-    'Brass': ['brass', 'trumpet', 'saxophone', 'trombone'],
-    'Chords': ['chord', 'chords', 'harmonic', 'harmony', 'keyboard', 'piano', 'synth chords'],
-    'Guitar & Plucked': ['guitar', 'pluck', 'plucked', 'acoustic guitar', 'electric guitar'],
-    'Lead': ['lead', 'lead part', 'lead instrument'],
-    'Mallets': ['mallet', 'mallets', 'xylophone', 'marimba'],
-    'Strings': ['string', 'strings', 'violin', 'cello', 'orchestra'],
-    'Synth Stabs': ['synth stabs', 'synth hit'],
-    'Voice': ['voice', 'vocals', 'vocal', 'singing'],
-    'Woodwind': ['woodwind', 'flute', 'sax', 'clarinet', 'oboe'],
-}
-
-# Extended class mappings
-LOOP_MAPPING = {
-    # Loops/Drums
-    'Breakbeat': 'Loops/Drums/Breakbeat',
-    'Hihat': 'Loops/Drums/Hihat',
-    'Percussion': 'Loops/Drums/Percussion',
-
-    # Loops/Sounds
-    'Bass': 'Loops/Sounds/Bass',
-    'Chords': 'Loops/Sounds/Chords',
-    'FX': 'Loops/Sounds/FX',
-    'Synth': 'Loops/Sounds/Synth',
-    'Voice': 'Loops/Sounds/Voice',
-}
-
-ONESHOT_MAPPING = {
-    # Oneshots/Drums
-    'Clap': 'Oneshots/Drums/Clap',
-    'Cymbal': 'Oneshots/Drums/Cymbal',
-    'Hand Percussion': 'Oneshots/Drums/Hand Percussion',
-    'Hihat': 'Oneshots/Drums/Hihat',
-    'Kick': 'Oneshots/Drums/Kick',
-    'Percussion': 'Oneshots/Drums/Percussion',
-    'Snare': 'Oneshots/Drums/Snare',
-    'Tom': 'Oneshots/Drums/Tom',
-
-    # Oneshots/Sounds
-    'Ambience & FX': 'Oneshots/Sounds/Ambience & FX',
-    'Bass': 'Oneshots/Sounds/Bass',
-    'Brass': 'Oneshots/Sounds/Brass',
-    'Chords': 'Oneshots/Sounds/Chords',
-    'Guitar & Plucked': 'Oneshots/Sounds/Guitar & Plucked',
-    'Lead': 'Oneshots/Sounds/Lead',
-    'Mallets': 'Oneshots/Sounds/Mallets',
-    'Strings': 'Oneshots/Sounds/Strings',
-    'Synth Stabs': 'Oneshots/Sounds/Synth Stabs',
-    'Voice': 'Oneshots/Sounds/Voice',
-    'Woodwind': 'Oneshots/Sounds/Woodwind',
+    'Oneshots/Sounds/Ambience & FX': ['ambience', 'ambient', 'fx', 'atmosphere', 'background noise'],
+    'Oneshots/Sounds/Bass': ['bass', 'bassline', 'sub bass'],
+    'Oneshots/Sounds/Brass': ['brass', 'trumpet', 'saxophone', 'trombone'],
+    'Oneshots/Sounds/Chords': ['chord', 'chords', 'harmonic', 'harmony', 'keyboard', 'piano', 'synth chords'],
+    'Oneshots/Sounds/Guitar & Plucked': ['guitar', 'pluck', 'plucked', 'acoustic guitar', 'electric guitar'],
+    'Oneshots/Sounds/Lead': ['lead', 'lead part', 'lead instrument'],
+    'Oneshots/Sounds/Mallets': ['mallet', 'mallets', 'xylophone', 'marimba'],
+    'Oneshots/Sounds/Strings': ['string', 'strings', 'violin', 'cello', 'orchestra'],
+    'Oneshots/Sounds/Voice': ['voice', 'vocals', 'vocal', 'singing'],
+    'Oneshots/Sounds/Woodwind': ['woodwind', 'flute', 'sax', 'clarinet', 'oboe'],
 }
 
 # Tonal categories for which key detection should be performed
@@ -108,21 +71,13 @@ TONAL_CATEGORIES = [
     'Mallets',
     'Strings',
     'Woodwind',
-    'Synth Stabs',
     'Synth',
+    'Piano',
+    'Pads'
 ]
 
-# Combined list of all possible substrings for categorization
-ALL_SUBSTRINGS = list(set(list(LOOP_MAPPING.keys()) + list(ONESHOT_MAPPING.keys())))
-
-# Supported audio file extensions
-AUDIO_EXTENSIONS = (
-    '.wav', '.mp3', '.aiff', '.flac', '.ogg', '.m4a',
-    '.aac', '.wma', '.alac', '.opus'
-)
-
 def parse_arguments():
-    parser = argparse.ArgumentParser(description='Organize audio samples into categorized folders based on loops and oneshots, and append Key and BPM information to filenames.')
+    parser = argparse.ArgumentParser(description='Organize audio samples into categorized folders based on model predictions and substring matching, and append Key and BPM information to filenames.')
     parser.add_argument('input_folder', type=str, help='Path to the input folder containing audio samples.')
     parser.add_argument('output_folder', type=str, help='Path to the output folder where organized samples will be stored.')
     parser.add_argument('--move', action='store_true', help='Move files instead of copying them.')
@@ -131,22 +86,19 @@ def parse_arguments():
 
 def create_directory_structure(base_path):
     """
-    Creates the required directory structure.
+    Creates the required directory structure based on the specified folder hierarchy.
     """
-    structure = [
-        # Loops/Drums
-        'Loops/Drums/Breakbeat',
+    directories = [
+        # Loops
+        'Loops/Drums/Full Drum Loop',
         'Loops/Drums/Hihat',
         'Loops/Drums/Percussion',
-
-        # Loops/Sounds
         'Loops/Sounds/Bass',
         'Loops/Sounds/Chords',
-        'Loops/Sounds/FX',
         'Loops/Sounds/Synth',
         'Loops/Sounds/Voice',
 
-        # Oneshots/Drums
+        # Oneshots
         'Oneshots/Drums/Clap',
         'Oneshots/Drums/Cymbal',
         'Oneshots/Drums/Hand Percussion',
@@ -155,8 +107,6 @@ def create_directory_structure(base_path):
         'Oneshots/Drums/Percussion',
         'Oneshots/Drums/Snare',
         'Oneshots/Drums/Tom',
-
-        # Oneshots/Sounds
         'Oneshots/Sounds/Ambience & FX',
         'Oneshots/Sounds/Bass',
         'Oneshots/Sounds/Brass',
@@ -165,49 +115,32 @@ def create_directory_structure(base_path):
         'Oneshots/Sounds/Lead',
         'Oneshots/Sounds/Mallets',
         'Oneshots/Sounds/Strings',
-        'Oneshots/Sounds/Synth Stabs',
         'Oneshots/Sounds/Voice',
         'Oneshots/Sounds/Woodwind',
-
-        # Unclassified
-        'Unclassified',
     ]
-
-    for folder in structure:
-        dir_path = os.path.join(base_path, folder)
+    for directory in directories:
+        dir_path = os.path.join(base_path, directory)
         os.makedirs(dir_path, exist_ok=True)
         logging.info(f"Ensured directory exists: {dir_path}")
+    # Ensure 'Unclassified' directory exists under both 'Oneshots' and 'Loops'
+    for sample_type in ['Oneshots', 'Loops']:
+        unclassified_dir = os.path.join(base_path, sample_type, 'Unclassified')
+        os.makedirs(unclassified_dir, exist_ok=True)
+        logging.info(f"Ensured directory exists: {unclassified_dir}")
 
 def detect_key(file_path):
     """
-    Detects the musical key and scale of an audio file using Essentia's KeyExtractor.
-
-    Parameters:
-    - file_path (str): Path to the audio file.
-
-    Returns:
-    - key_scale (str): Detected key and scale (e.g., 'C Major'), or 'Unknown' if detection fails.
+    Detects the musical key of an audio file using librosa's key estimation.
     """
     try:
-        # Instantiate the key extractor
-        key_extractor = ess.KeyExtractor()
-
-        # Load audio at 16kHz mono
-        loader = ess.MonoLoader(filename=file_path, sampleRate=16000)
-        audio = loader()
-
-        # Extract the key, scale, and strength
-        key, scale, strength = key_extractor(audio)
-
-        # Check detection strength
-        if strength < 0.1:
-            logging.warning(f"Low confidence ({strength}) in key detection for '{file_path}'.")
-            return 'Unknown'
-
-        # Format the key and scale
-        key_scale = f"{key} {scale.capitalize()}"
-
-        return key_scale
+        y, sr = librosa.load(file_path, sr=22050)
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        chroma_mean = np.mean(chroma, axis=1)
+        key_idx = np.argmax(chroma_mean)
+        key_list = ['C', 'C#', 'D', 'D#', 'E', 'F',
+                    'F#', 'G', 'G#', 'A', 'A#', 'B']
+        key = key_list[key_idx]
+        return key
     except Exception as e:
         logging.error(f"Error extracting key for '{file_path}': {e}")
         return 'Unknown'
@@ -230,11 +163,9 @@ def is_loop(file_path, bpm_threshold=30, beats_per_bar=4, tolerance=0.05):
         num_onsets = len(onsets)
 
         if num_onsets <= 1:
-            logging.info(f"File '{file_path}' has {num_onsets} transients, not enough to be a loop.")
             return False, float(tempo)
 
         if tempo < bpm_threshold:
-            logging.info(f"File '{file_path}' tempo {tempo} BPM below threshold {bpm_threshold} BPM.")
             return False, float(tempo)  # Too slow to be considered rhythmic
 
         # Calculate duration per beat and per bar
@@ -244,17 +175,20 @@ def is_loop(file_path, bpm_threshold=30, beats_per_bar=4, tolerance=0.05):
         # Number of bars (could be fractional)
         num_bars = duration / bar_duration
 
-        # Check if num_bars is close to an integer power of 2 (1, 2, 4, 8, 16, ...)
         if num_bars < 0.5:
-            logging.info(f"File '{file_path}' has {num_bars} bars, which is too short to be a loop.")
             return False, float(tempo)  # Too short to be a loop
 
-        nearest_power = 2 ** round(math.log(num_bars, 2))
-        if abs(num_bars - nearest_power) / nearest_power <= tolerance:
-            logging.info(f"File '{file_path}' identified as loop with {tempo} BPM and approximately {nearest_power} bars.")
+        # Ensure num_bars is a scalar
+        if isinstance(num_bars, np.ndarray):
+            num_bars_scalar = num_bars.item()
+        else:
+            num_bars_scalar = num_bars
+
+        nearest_power = 2 ** round(math.log(num_bars_scalar, 2))
+
+        if abs(num_bars_scalar - nearest_power) / nearest_power <= tolerance:
             return True, float(tempo)
         else:
-            logging.info(f"File '{file_path}' not a loop. BPM: {tempo}, Bars: {num_bars}, Nearest Power: {nearest_power}.")
             return False, float(tempo)
     except Exception as e:
         logging.error(f"Error processing '{file_path}': {e}")
@@ -309,14 +243,56 @@ def classify_file(file_path, model, label_encoder):
     predictions = model.predict(features)
     confidence = np.max(predictions)
     predicted_class_index = np.argmax(predictions)
-    predicted_category = label_encoder.classes_[predicted_class_index]
+    predicted_label = label_encoder.inverse_transform([predicted_class_index])[0]
+    predicted_category = label_to_directory(predicted_label)
     return predicted_category, confidence
 
-def categorize_file(file_path, is_loop_flag):
+def label_to_directory(label):
+    """
+    Maps a model's predicted label to the corresponding directory path.
+    """
+    # Map labels to directory paths
+    label_directory_mapping = {
+        # Loops/Drums
+        'Full Drum Loop': 'Loops/Drums/Full Drum Loop',
+        'Hihat Loop': 'Loops/Drums/Hihat',
+        'Percussion Loop': 'Loops/Drums/Percussion',
+
+        # Loops/Sounds
+        'Bass Loop': 'Loops/Sounds/Bass',
+        'Chords Loop': 'Loops/Sounds/Chords',
+        'Synth Loop': 'Loops/Sounds/Synth',
+        'Voice Loop': 'Loops/Sounds/Voice',
+
+        # Oneshots/Drums
+        'Clap': 'Oneshots/Drums/Clap',
+        'Cymbal': 'Oneshots/Drums/Cymbal',
+        'Hand Percussion': 'Oneshots/Drums/Hand Percussion',
+        'Hihat': 'Oneshots/Drums/Hihat',
+        'Kick': 'Oneshots/Drums/Kick',
+        'Percussion': 'Oneshots/Drums/Percussion',
+        'Snare': 'Oneshots/Drums/Snare',
+        'Tom': 'Oneshots/Drums/Tom',
+
+        # Oneshots/Sounds
+        'Ambience & FX': 'Oneshots/Sounds/Ambience & FX',
+        'Bass': 'Oneshots/Sounds/Bass',
+        'Brass': 'Oneshots/Sounds/Brass',
+        'Chords': 'Oneshots/Sounds/Chords',
+        'Guitar & Plucked': 'Oneshots/Sounds/Guitar & Plucked',
+        'Lead': 'Oneshots/Sounds/Lead',
+        'Mallets': 'Oneshots/Sounds/Mallets',
+        'Strings': 'Oneshots/Sounds/Strings',
+        'Voice': 'Oneshots/Sounds/Voice',
+        'Woodwind': 'Oneshots/Sounds/Woodwind',
+    }
+    return label_directory_mapping.get(label, None)
+
+def categorize_file(file_path):
     """
     Categorizes the file based on substrings in the filename and its directory names.
 
-    Returns the destination subfolder path.
+    Returns the category directory path if matched, otherwise None.
     """
     filename = os.path.basename(file_path).lower()
     # Normalize filename: remove '&', spaces, hyphens, and underscores
@@ -337,24 +313,18 @@ def categorize_file(file_path, is_loop_flag):
         for substring in substrings:
             substring_clean = substring.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
             if substring_clean in dir_names_combined:
-                if is_loop_flag and category in LOOP_MAPPING:
-                    return LOOP_MAPPING[category]
-                elif not is_loop_flag and category in ONESHOT_MAPPING:
-                    return ONESHOT_MAPPING[category]
+                return category
 
     # If no match in directories, check the filename
     for category, substrings in filename_substrings.items():
         for substring in substrings:
             substring_clean = substring.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
             if substring_clean in filename_clean:
-                if is_loop_flag and category in LOOP_MAPPING:
-                    return LOOP_MAPPING[category]
-                elif not is_loop_flag and category in ONESHOT_MAPPING:
-                    return ONESHOT_MAPPING[category]
+                return category
 
     return None  # If no category matches
 
-def organize_samples(input_folder, output_folder, model, label_encoder, move_files):
+def organize_samples(input_folder, output_folder, model, label_encoder, move_files, tonal_categories):
     """
     Organizes the audio samples from the input folder into the structured output folder,
     and appends Key and BPM information to filenames.
@@ -375,48 +345,43 @@ def organize_samples(input_folder, output_folder, model, label_encoder, move_fil
     # Process files with progress bar
     for file_path in tqdm(audio_files, desc="Organizing Samples", unit="file"):
         loop_flag, bpm = is_loop(file_path)
-        category_path = categorize_file(file_path, loop_flag)
+        substring_category = categorize_file(file_path)
 
-        if category_path is None:
-            # If substring matching fails, use the pretrained model
+        # Initialize variables
+        category_name = None
+        destination_dir = None
+        predicted_category = None  # Initialize predicted_category
+        confidence = None  # Initialize confidence
+
+        # First, try substring matching
+        if substring_category is not None:
+            category_name = substring_category
+            destination_dir = os.path.join(output_folder, category_name)
+        else:
+            # Use model prediction
             predicted_category, confidence = classify_file(file_path, model, label_encoder)
-            if confidence < 0.2:
+            if confidence < 0.2 or predicted_category is None:
                 # Move/copy to 'Unclassified'
-                destination_dir = os.path.join(output_folder, 'Unclassified')
-                category_name = 'Unclassified'
+                sample_type = 'Loops' if loop_flag else 'Oneshots'
+                destination_dir = os.path.join(output_folder, sample_type, 'Unclassified')
+                category_name = f"{sample_type}/Unclassified"
                 logging.info(f"Low confidence ({confidence:.2f}) for '{file_path}'. Moving to 'Unclassified'.")
             else:
-                # Map model's predicted category to destination directory
-                category_parts = predicted_category.split('_')  # Assuming format 'Parent_Subcategory'
-                if len(category_parts) == 2:
-                    parent_category, sub_category = category_parts
-                    if loop_flag:
-                        if parent_category == 'Drums':
-                            # Only 'Breakbeat', 'Hihat', 'Percussion' are valid for Loops/Drums
-                            if sub_category in ['Breakbeat', 'Hihat', 'Percussion']:
-                                destination_dir = os.path.join(output_folder, 'Loops', parent_category, sub_category)
-                                category_name = sub_category
-                            else:
-                                destination_dir = os.path.join(output_folder, 'Unclassified')
-                                category_name = 'Unclassified'
-                        else:
-                            destination_dir = os.path.join(output_folder, 'Loops', parent_category, sub_category)
-                            category_name = sub_category
-                    else:
-                        destination_dir = os.path.join(output_folder, 'Oneshots', parent_category, sub_category)
-                        category_name = sub_category
-                else:
-                    # If the predicted category does not match expected format, move to Unclassified
-                    destination_dir = os.path.join(output_folder, 'Unclassified')
-                    category_name = 'Unclassified'
-                    logging.warning(f"Unexpected category format '{predicted_category}' for '{file_path}'. Moving to 'Unclassified'.")
-        else:
-            destination_dir = os.path.join(output_folder, category_path)
-            # Extract category name from category_path
-            category_name = category_path.split('/')[-1]
+                category_name = predicted_category
+                destination_dir = os.path.join(output_folder, category_name)
+                # Ensure destination directory exists
+                os.makedirs(destination_dir, exist_ok=True)
+
+        # If both methods provided categories, and they differ, log a warning
+        if substring_category and predicted_category and substring_category != predicted_category:
+            logging.warning(f"Mismatch between substring category '{substring_category}' and model prediction '{predicted_category}' for '{file_path}'.")
 
         # Ensure destination directory exists
-        os.makedirs(destination_dir, exist_ok=True)
+        if destination_dir is None:
+            sample_type = 'Loops' if loop_flag else 'Oneshots'
+            destination_dir = os.path.join(output_folder, sample_type, 'Unclassified')
+            category_name = f"{sample_type}/Unclassified"
+            os.makedirs(destination_dir, exist_ok=True)
 
         filename = os.path.basename(file_path)
         name, ext = os.path.splitext(filename)
@@ -426,7 +391,9 @@ def organize_samples(input_folder, output_folder, model, label_encoder, move_fil
         append_info = []
 
         # Only perform key detection for tonal samples
-        if category_name in TONAL_CATEGORIES:
+        # Extract the subcategory name from the category path
+        subcategory_name = category_name.split('/')[-1]
+        if subcategory_name in tonal_categories:
             key = detect_key(file_path)
             if key != 'Unknown':
                 append_info.append(key)
@@ -454,6 +421,8 @@ def organize_samples(input_folder, output_folder, model, label_encoder, move_fil
         except Exception as e:
             logging.error(f"Failed to move/copy '{file_path}': {e}")
 
+    logging.info("Organization complete.")
+
 def main():
     input_folder, output_folder, move_files = parse_arguments()
 
@@ -473,8 +442,8 @@ def main():
 
     # Load the pretrained model and label encoder
     try:
-        model = load_model('audio_classification_model.keras')
-        with open('label_encoder.pkl', 'rb') as f:
+        model = load_model('model/audio_classification_model.keras')
+        with open('model/label_encoder.pkl', 'rb') as f:
             label_encoder = pickle.load(f)
         logging.info('Loaded pretrained model and label encoder.')
     except Exception as e:
@@ -482,7 +451,24 @@ def main():
         logging.error(f"Error loading model or label encoder: {e}")
         sys.exit(1)
 
-    organize_samples(input_folder, output_folder, model, label_encoder, move_files)
+    # Define tonal categories for which key detection should be performed
+    # These should match the subcategory names in the directory structure
+    tonal_categories = [
+        'Bass',
+        'Chords',
+        'Voice',
+        'Brass',
+        'Guitar & Plucked',
+        'Lead',
+        'Mallets',
+        'Strings',
+        'Woodwind',
+        'Synth',
+        'Piano',
+        'Pads'
+    ]
+
+    organize_samples(input_folder, output_folder, model, label_encoder, move_files, tonal_categories)
     print("Organization complete.")
     logging.info("Organization complete.")
 
