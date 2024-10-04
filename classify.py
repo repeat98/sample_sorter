@@ -85,7 +85,7 @@ filename_substrings = {
 
     # Oneshots/Drums
     'Clap': ['clap', 'snap', 'handclap', 'hand clap'],
-    'Cymbal': ['cymbal', 'china', 'ride cymbal', 'splash cymbal', 'ride'],
+    'Cymbal': ['cymbal', 'china', 'ride cymbal', 'splash cymbal', 'ride', 'crash'],
     'Hand Percussion': ['hand percussion', 'hand drums', 'conga', 'bongo', 'djembe', 'tabla', 'shaker', 'tambourine', 'cowbell'],
     'Hihat': ['hihat', 'hi-hat', 'hat', 'closed hat', 'open hat'],
     'Kick': ['kick', 'bass drum', 'bd', 'kick drum', 'bassdrum'],

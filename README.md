@@ -138,12 +138,12 @@ Use the organizing script to categorize and organize your audio samples.
 
 1. **Ensure Model and Encoder are Present**:
 
-   Place `audio_classification_model.keras` and `label_encoder.pkl` in the same directory as the organizing script (`organize_samples.py`).
+   Place `audio_classification_model.keras` and `label_encoder.pkl` in the same directory as the organizing script (`classify.py`).
 
 2. **Run the Organizing Script**:
 
    ```bash
-   python organize_samples.py /path/to/input_folder /path/to/output_folder
+   python classify.py /path/to/input_folder /path/to/output_folder
    ```
 
    - `/path/to/input_folder`: The directory containing the audio samples you wish to organize.
