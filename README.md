@@ -50,7 +50,7 @@ This project provides a set of scripts to organize and classify audio samples in
 
 2. **Create a Virtual Environment (Recommended)**:
    ```bash
-   python -m venv venv
+   python3 -m venv venv
    source venv/bin/activate  # On Windows use 'venv\Scripts\activate'
    ```
 
@@ -109,14 +109,14 @@ The model distinguishes between loops and oneshots as separate classes.
 
    In the training script (`train_model.py`), update the `DATASET_PATH` variable to point to your training data:
 
-   ```python
+   ```python3
    DATASET_PATH = "/path/to/your/dataset/train"
    ```
 
 2. **Run the Training Script**:
 
    ```bash
-   python train_model.py
+   python3 train_model.py
    ```
 
    This script will:
@@ -143,7 +143,7 @@ Use the organizing script to categorize and organize your audio samples.
 2. **Run the Organizing Script**:
 
    ```bash
-   python classify.py /path/to/input_folder /path/to/output_folder
+   python3 classify.py /path/to/input_folder /path/to/output_folder
    ```
 
    - `/path/to/input_folder`: The directory containing the audio samples you wish to organize.
@@ -165,13 +165,13 @@ Use the organizing script to categorize and organize your audio samples.
 - **Usage**:
 
   1. **Set the Dataset Path**:
-     ```python
+     ```python3
      DATASET_PATH = "/path/to/your/dataset/train"
      ```
 
   2. **Run the Script**:
      ```bash
-     python train_model.py
+     python3 train_model.py
      ```
 
   3. **Monitor Training**:
@@ -188,7 +188,7 @@ Use the organizing script to categorize and organize your audio samples.
 - **Usage**:
 
   ```bash
-  python classify.py /path/to/input_folder /path/to/output_folder
+  python3 classify.py /path/to/input_folder /path/to/output_folder
   ```
 
 - **Arguments**:
