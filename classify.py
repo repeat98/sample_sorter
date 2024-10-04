@@ -79,17 +79,17 @@ filename_substrings = {
 
     # Loops/Sounds
     'Bass': ['bass loop', 'bassline loop', 'sub bass loop'],
-    'Chords': ['chord loop', 'chords loop', 'keyboard loop', 'piano loop', 'synth chords loop'],
-    'Synth': ['synth loop', 'synthesizer loop', 'synth lead loop', 'synth pad loop'],
-    'Voice': ['vocal loop', 'vocals loop', 'voice loop', 'singing loop'],
+    'Chords': ['chord loop', 'chords loop', 'keyboard loop', 'piano loop', 'synth chords loop', 'stab', 'pad'],
+    'Synth': ['synth loop', 'synthesizer loop', 'synth lead loop', 'synth pad loop', 'syn'],
+    'Voice': ['vocal loop', 'vocals loop', 'voice loop', 'singing loop', 'vox'],
 
     # Oneshots/Drums
     'Clap': ['clap', 'snap', 'handclap', 'hand clap'],
-    'Cymbal': ['cymbal', 'china', 'ride cymbal', 'splash cymbal'],
+    'Cymbal': ['cymbal', 'china', 'ride cymbal', 'splash cymbal', 'ride'],
     'Hand Percussion': ['hand percussion', 'hand drums', 'conga', 'bongo', 'djembe', 'tabla', 'shaker', 'tambourine', 'cowbell'],
     'Hihat': ['hihat', 'hi-hat', 'hat', 'closed hat', 'open hat'],
-    'Kick': ['kick', 'bass drum', 'bd', 'kick drum'],
-    'Percussion': ['perc', 'percussion', 'shaker', 'tambourine', 'cowbell'],
+    'Kick': ['kick', 'bass drum', 'bd', 'kick drum', 'bassdrum'],
+    'Percussion': ['perc', 'percussion', 'shaker', 'tambourine', 'cowbell', 'shaker', 'tambourine', ],
     'Snare': ['snare', 'snr', 'rimshot', 'brushes'],
     'Tom': ['tom', 'toms', 'floor tom', 'rack tom'],
 
@@ -97,13 +97,13 @@ filename_substrings = {
     'Ambience & FX': ['ambience', 'ambient', 'fx', 'effects', 'sfx', 'reverb', 'delay', 'echo', 'atmosphere', 'background noise'],
     'Bass': ['bass', 'bassline', 'sub bass'],
     'Brass': ['brass', 'trumpet', 'saxophone', 'trombone'],
-    'Chords': ['chord', 'chords', 'keyboard', 'piano', 'synth chords'],
+    'Chords': ['chord', 'chords', 'keyboard', 'piano', 'synth chords', 'pad', 'stab'],
     'Guitar & Plucked': ['guitar', 'pluck', 'plucked', 'acoustic guitar', 'electric guitar', 'harp', 'banjo', 'ukulele', 'mandolin'],
     'Lead': ['lead', 'lead synth', 'lead guitar', 'melody'],
     'Mallets': ['mallet', 'mallets', 'xylophone', 'marimba', 'vibraphone', 'glockenspiel'],
     'Strings': ['string', 'strings', 'violin', 'cello', 'orchestra'],
-    'Voice': ['voice', 'vocals', 'vocal', 'singing'],
-    'Woodwind': ['woodwind', 'flute', 'sax', 'clarinet', 'oboe', 'bassoon'],
+    'Voice': ['voice', 'vocals', 'vocal', 'singing', 'vox'],
+    'Woodwind': ['woodwind', 'flute', 'sax', 'clarinet', 'oboe', 'bassoon','horn'],
     # Additional categories can be added here
 }
 
