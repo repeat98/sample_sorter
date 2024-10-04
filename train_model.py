@@ -12,10 +12,11 @@ import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.utils import to_categorical
 import pickle
+from tqdm import tqdm  # Added for progress bars
 
 # --------------------------- Parameters ---------------------------
 
-DATASET_PATH = "/Users/jannikassfalg/coding/sample_sorter/dataset/train"  # Update this path as needed
+DATASET_PATH = "/Users/jannikassfalg/coding/sample_sorter/train"  # Update this path as needed
 SAMPLE_RATE = 22050  # Sampling rate for audio
 DURATION = 5  # Duration to which all audio files will be truncated or padded
 SAMPLES_PER_TRACK = SAMPLE_RATE * DURATION
@@ -35,61 +36,37 @@ MIN_SAMPLES_PER_CLASS = 5  # Minimum samples required per class
 # Supported audio file extensions
 AUDIO_EXTENSIONS = (
     '.wav', '.mp3', '.flac', '.ogg', '.aiff', '.aif',
-    '.aac', '.wma', '.m4a', '.alac', '.opus', '.mid', '.midi'
+    '.aac', '.wma', '.m4a', '.alac', '.opus'
 )
+
+# Ensure the 'model' directory exists
+os.makedirs('model', exist_ok=True)
 
 # ----------------------- Data Loading -----------------------
 
-def augment_audio(signal, sample_rate):
-    try:
-        # Time Stretch
-        stretch_rate = np.random.uniform(0.8, 1.2)
-        stretched_signal = librosa.effects.time_stretch(signal, stretch_rate)
-
-        # Pitch Shift
-        n_steps = np.random.randint(-5, 5)
-        pitched_signal = librosa.effects.pitch_shift(stretched_signal, sample_rate, n_steps)
-
-        # Add Noise
-        noise = np.random.randn(len(pitched_signal))
-        augmented_signal = pitched_signal + 0.005 * noise
-
-        # Volume Control
-        augmented_signal = augmented_signal * np.random.uniform(0.8, 1.2)
-
-        # Time Cropping or Padding
-        if len(augmented_signal) > SAMPLES_PER_TRACK:
-            start = np.random.randint(0, len(augmented_signal) - SAMPLES_PER_TRACK)
-            augmented_signal = augmented_signal[start:start + SAMPLES_PER_TRACK]
-        else:
-            pad_width = SAMPLES_PER_TRACK - len(augmented_signal)
-            augmented_signal = np.pad(augmented_signal, (0, pad_width), 'constant')
-
-        return augmented_signal
-    except Exception as e:
-        print(f"Error during augmentation: {e}")
-        return None  # Return None to indicate failure
-
-def load_audio_files(dataset_path, sample_rate, duration, audio_extensions, augment=False):
+def load_audio_files(dataset_path, sample_rate, duration, audio_extensions):
     X = []
     labels = []
     max_len = sample_rate * duration
     success_count = 0
 
+    # Get total number of files for the progress bar
+    total_files = sum(len(files) for _, _, files in os.walk(dataset_path))
+
     # Traverse the directory structure
+    pbar = tqdm(total=total_files, desc="Loading audio files", unit="files")
     for root, dirs, files in os.walk(dataset_path):
         for file in files:
+            pbar.update(1)
             if file.lower().endswith(audio_extensions):
                 file_path = os.path.join(root, file)
-                # Extract labels based on grandparent and parent directories
-                # Assuming the structure is /dataset/train/Loops/Sounds/Bass/
-                parts = file_path.split(os.sep)
-                if len(parts) >= 3:
-                    parent_folder = parts[-3]
-                    category_folder = parts[-2]
-                    label = f"{parent_folder}_{category_folder}"
+                # Extract labels based on the last directory in the path
+                # Get the relative path from dataset_path
+                rel_path = os.path.relpath(file_path, dataset_path)
+                parts = rel_path.split(os.sep)
+                if len(parts) >= 2:
+                    label = parts[-2]  # The last directory before the file name
                 else:
-                    # Handle cases where the directory structure is not as expected
                     label = os.path.basename(root)
 
                 # Load audio file
@@ -101,36 +78,18 @@ def load_audio_files(dataset_path, sample_rate, duration, audio_extensions, augm
                         pad_width = max_len - len(signal)
                         signal = np.pad(signal, (0, pad_width), 'constant')
 
-                    if augment:
-                        augmented_signal = augment_audio(signal, sr)
-                        if augmented_signal is not None:
-                            signal = augmented_signal
-                        else:
-                            print(f"Skipping augmentation for {file_path} due to previous error.")
-
                     X.append(signal)
                     labels.append(label)
                     success_count += 1
                 except Exception as e:
                     print(f"Error loading {file_path}: {e}")
-
-    print(f"{'Augmented' if augment else 'Loaded'} {success_count} samples successfully.")
+    pbar.close()
+    print(f"\nLoaded {success_count} samples successfully.")
     return np.array(X), np.array(labels)
 
 print("Loading audio files...")
 # Load original data
-X, labels = load_audio_files(DATASET_PATH, SAMPLE_RATE, DURATION, AUDIO_EXTENSIONS, augment=False)
-# Load augmented data
-augmented_X, augmented_labels = load_audio_files(DATASET_PATH, SAMPLE_RATE, DURATION, AUDIO_EXTENSIONS, augment=True)
-
-# Verify dimensions and concatenate if possible
-print("\nVerifying and concatenating augmented data...")
-if augmented_X.size > 0 and augmented_X.ndim == 2 and X.ndim == 2:
-    X = np.concatenate((X, augmented_X), axis=0)
-    labels = np.concatenate((labels, augmented_labels), axis=0)
-    print(f"Combined dataset size: {X.shape[0]} samples.")
-else:
-    print("No augmented data to concatenate or inconsistent dimensions.")
+X, labels = load_audio_files(DATASET_PATH, SAMPLE_RATE, DURATION, AUDIO_EXTENSIONS)
 
 # -------------------- Label Encoding --------------------
 
@@ -155,7 +114,8 @@ MIN_SAMPLES = MIN_SAMPLES_PER_CLASS
 classes_to_keep = [label for label, count in class_counts.items() if count >= MIN_SAMPLES]
 removed_classes = [label for label, count in class_counts.items() if count < MIN_SAMPLES]
 print(f"\nClasses to keep (>= {MIN_SAMPLES} samples): {len(classes_to_keep)}")
-print(f"Classes removed (<{ MIN_SAMPLES} samples): {removed_classes}")
+print(f"Classes removed (<{MIN_SAMPLES} samples): {removed_classes}")
+print(f"Filtered out {len(removed_classes)} classes.")
 
 # Filter out samples from classes with fewer than MIN_SAMPLES
 filtered_indices = [i for i, label in enumerate(labels) if label in classes_to_keep]
@@ -164,13 +124,13 @@ y_filtered = y_encoded[filtered_indices]
 filtered_labels = labels[filtered_indices]
 
 print(f"Filtered dataset size: {X_filtered.shape[0]} samples")
+print(f"Number of classes after filtering: {len(classes_to_keep)}")
 
 # Re-encode labels after filtering
 le_filtered = LabelEncoder()
 y_encoded_filtered = le_filtered.fit_transform(filtered_labels)
 y_categorical = to_categorical(y_encoded_filtered)
 num_classes_filtered = y_categorical.shape[1]
-print(f"Number of classes after filtering: {num_classes_filtered}")
 
 # Print filtered class distribution
 print("\nClass distribution after filtering:")
@@ -182,7 +142,9 @@ for label, count in filtered_class_counts.items():
 
 def extract_features(X, sample_rate, n_mels, hop_length, n_fft, n_mfcc=13):
     mfccs = []
+    pbar = tqdm(total=len(X), desc="Extracting features", unit="samples")
     for x in X:
+        pbar.update(1)
         try:
             mfcc = librosa.feature.mfcc(y=x, sr=sample_rate, n_mfcc=n_mfcc,
                                         n_mels=n_mels, hop_length=hop_length, n_fft=n_fft)
@@ -191,6 +153,7 @@ def extract_features(X, sample_rate, n_mels, hop_length, n_fft, n_mfcc=13):
         except Exception as e:
             print(f"Error extracting features: {e}")
             mfccs.append(np.zeros((n_mfcc, int(np.ceil(len(x)/hop_length))), dtype=np.float32))  # Placeholder
+    pbar.close()
     return np.array(mfccs)
 
 print("\nExtracting features...")
@@ -245,9 +208,9 @@ model = build_model(input_shape, num_classes_filtered)
 model.summary()
 
 # Save the label encoder
-with open("label_encoder.pkl", "wb") as le_file:
+with open("model/label_encoder.pkl", "wb") as le_file:
     pickle.dump(le_filtered, le_file)
-print("Label encoder saved to 'label_encoder.pkl'")
+print("Label encoder saved to 'model/label_encoder.pkl'")
 
 # Print the class labels
 print("Model Class Labels:")
@@ -265,7 +228,7 @@ model.compile(
 
 callbacks = [
     tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
-    tf.keras.callbacks.ModelCheckpoint("best_model.keras", save_best_only=True),
+    tf.keras.callbacks.ModelCheckpoint("model/best_model.keras", save_best_only=True),
     tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, verbose=1)
 ]
 
@@ -358,5 +321,5 @@ plot_confusion_matrix(y_true, y_pred_classes, le_filtered.classes_)
 
 # -------------------- Save the Model --------------------
 
-model.save("audio_classification_model.keras")  # Updated extension
-print("\nModel saved to 'audio_classification_model.keras'")
+model.save("model/audio_classification_model.keras")
+print("\nModel saved to 'model/audio_classification_model.keras'")

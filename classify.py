@@ -27,7 +27,7 @@ N_MELS = 128
 HOP_LENGTH = 512
 N_FFT = 2048
 N_MFCC = 20
-CONFIDENCE_THRESHOLD = 0.8  # Adjust as needed
+CONFIDENCE_THRESHOLD = 0.3  # Adjust as needed
 
 # Load the trained model and label encoder
 model = tf.keras.models.load_model("audio_classification_model.keras")
