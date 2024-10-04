@@ -5,5 +5,5 @@ essentia_models/
 dataset/
 venv/
 .DS_Store
-classification.log
 train/
+organize_samples.log
