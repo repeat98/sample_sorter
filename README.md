@@ -232,7 +232,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 **Contact Information**:
 
-For any questions or issues, please contact [your_email@example.com](mailto:jannik.assfalg@gmail.com).
+For any questions or issues, please contact [jannik.assfalg@gmail.com](mailto:jannik.assfalg@gmail.com).
 
 **GitHub Repository**:
 
