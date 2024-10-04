@@ -10,6 +10,7 @@ import numpy as np
 import logging
 import tensorflow as tf
 import pickle
+import soundfile as sf
 
 # Setup logging
 logging.basicConfig(
@@ -31,7 +32,7 @@ N_MFCC = 20  # Should match the value in training script
 SAMPLES_PER_TRACK = SAMPLE_RATE * DURATION
 
 # Tonal categories for which key detection should be performed
-TONAL_CATEGORIES = [
+TONAL_CATEGORIES = {
     'Bass',
     'Chords',
     'Synth',
@@ -42,7 +43,7 @@ TONAL_CATEGORIES = [
     'Mallets',
     'Strings',
     'Woodwind',
-]
+}
 
 # Supported audio file extensions
 AUDIO_EXTENSIONS = (
@@ -145,6 +146,13 @@ ONESHOT_MAPPING = {
 # Combined list of all possible substrings for categorization
 ALL_SUBSTRINGS = list(set(list(LOOP_MAPPING.keys()) + list(ONESHOT_MAPPING.keys())))
 
+# Preprocess substrings for faster access
+preprocessed_substrings = {
+    category: [substr.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '') 
+               for substr in substrings]
+    for category, substrings in filename_substrings.items()
+}
+
 # ------------------------ Functions ------------------------
 
 def parse_arguments():
@@ -193,34 +201,30 @@ def create_directory_structure(base_path):
     for folder in structure:
         dir_path = os.path.join(base_path, folder)
         os.makedirs(dir_path, exist_ok=True)
-        logging.info(f"Ensured directory exists: {dir_path}")
+        # Reduced logging to DEBUG level for directory creation
+        logging.debug(f"Ensured directory exists: {dir_path}")
 
-    return structure  # Return the structure for later use
+    return set(structure)  # Return as a set for faster lookup
 
-def detect_key(file_path):
+def detect_key(audio_data, sample_rate, key_extractor):
     """
-    Detects the musical key and scale of an audio file using Essentia's KeyExtractor.
+    Detects the musical key and scale of an audio signal using Essentia's KeyExtractor.
 
     Parameters:
-    - file_path (str): Path to the audio file.
+    - audio_data (np.ndarray): Audio time series.
+    - sample_rate (int): Sample rate of the audio.
+    - key_extractor (ess.KeyExtractor): Pre-instantiated KeyExtractor object.
 
     Returns:
     - key_scale (str): Detected key and scale (e.g., 'C Major'), or 'Unknown' if detection fails.
     """
     try:
-        # Instantiate the key extractor
-        key_extractor = ess.KeyExtractor()
-
-        # Load audio at 16kHz mono
-        loader = ess.MonoLoader(filename=file_path, sampleRate=16000)
-        audio = loader()
-
         # Extract the key, scale, and strength
-        key, scale, strength = key_extractor(audio)
+        key, scale, strength = key_extractor(audio_data)
 
         # Check detection strength
         if strength < 0.1:
-            logging.warning(f"Low confidence ({strength}) in key detection for '{file_path}'.")
+            logging.warning(f"Low confidence ({strength}) in key detection.")
             return 'Unknown'
 
         # Format the key and scale
@@ -228,31 +232,55 @@ def detect_key(file_path):
 
         return key_scale
     except Exception as e:
-        logging.error(f"Error extracting key for '{file_path}': {e}")
+        logging.error(f"Error extracting key: {e}")
         return 'Unknown'
 
-def is_loop(file_path, bpm_threshold=30, beats_per_bar=4, tolerance=0.05):
+def is_loop(y, sr, bpm_threshold=30, beats_per_bar=4, tolerance=0.05, min_transients=2, beat_track_kwargs=None, onset_detect_kwargs=None):
     """
-    Determines if a file is a loop based on BPM and duration.
+    Determines if a file is a loop based on BPM, duration, transients, and rhythmic consistency.
 
     Parameters:
-    - file_path (str): Path to the audio file.
+    - y (np.ndarray): Audio time series.
+    - sr (int): Sample rate of the audio.
     - bpm_threshold (float): Minimum BPM to consider as rhythmic.
     - beats_per_bar (int): Number of beats in a musical bar.
     - tolerance (float): Acceptable deviation when checking bar multiples.
+    - min_transients (int): Minimum number of transients to consider as rhythmic.
+    - beat_track_kwargs (dict): Additional keyword arguments for beat_track.
+    - onset_detect_kwargs (dict): Additional keyword arguments for onset_detect.
 
     Returns:
     - bool: True if loop, False otherwise.
-    - bpm (float): Estimated BPM of the loop.
+    - float: Estimated BPM of the loop.
     """
     try:
-        y, sr = librosa.load(file_path, sr=None, mono=True)
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-        duration = librosa.get_duration(y=y, sr=sr)
+        # Normalize audio to have maximum amplitude of 1.0
+        y = librosa.util.normalize(y)
 
+        # Estimate tempo (BPM) and beat frames
+        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, **(beat_track_kwargs or {}))
+
+        # Ensure tempo is a scalar float
+        if isinstance(tempo, np.ndarray):
+            tempo = float(tempo.item())
+        else:
+            tempo = float(tempo)
+
+        # Ensure tempo is above the threshold
         if tempo < bpm_threshold:
-            logging.info(f"File '{file_path}' tempo {tempo} BPM below threshold {bpm_threshold} BPM.")
-            return False, float(tempo)  # Too slow to be considered rhythmic
+            logging.debug(f"Tempo {tempo:.2f} BPM below threshold {bpm_threshold} BPM.")
+            return False, tempo  # Too slow to be considered rhythmic
+
+        # Detect onsets (transients) to ensure multiple transients exist
+        onset_frames = librosa.onset.onset_detect(y=y, sr=sr, **(onset_detect_kwargs or {}))
+        num_transients = len(onset_frames)
+
+        if num_transients < min_transients:
+            logging.debug(f"Only {num_transients} transients detected, fewer than the minimum required {min_transients}.")
+            return False, tempo  # Not enough transients to be considered rhythmic
+
+        # Calculate duration in seconds
+        duration = librosa.get_duration(y=y, sr=sr)
 
         # Calculate duration per beat and per bar
         beat_duration = 60.0 / tempo
@@ -261,79 +289,78 @@ def is_loop(file_path, bpm_threshold=30, beats_per_bar=4, tolerance=0.05):
         # Number of bars (could be fractional)
         num_bars = duration / bar_duration
 
-        # Check if num_bars is close to an integer power of 2 (1, 2, 4, 8, 16, ...)
-        if num_bars < 0.5:
-            logging.info(f"File '{file_path}' has {num_bars} bars, which is too short to be a loop.")
-            return False, float(tempo)  # Too short to be a loop
+        if num_bars < 1.0:
+            logging.debug(f"Duration {duration:.2f}s is too short to be a loop.")
+            return False, tempo  # Too short to be a loop
 
-        nearest_power = 2 ** round(math.log(num_bars, 2))
-        if abs(num_bars - nearest_power) / nearest_power <= tolerance:
-            logging.info(f"File '{file_path}' identified as loop with {tempo} BPM and approximately {nearest_power} bars.")
-            return True, float(tempo)
+        # Check if num_bars is close to an integer number of bars within the tolerance
+        nearest_int = round(num_bars)
+        if nearest_int == 0:
+            return False, tempo
+        if abs(num_bars - nearest_int) / nearest_int <= tolerance:
+            logging.debug(f"Identified as loop with {tempo:.2f} BPM and approximately {nearest_int} bars.")
+            return True, tempo
         else:
-            logging.info(f"File '{file_path}' not a loop. BPM: {tempo}, Bars: {num_bars}, Nearest Power: {nearest_power}.")
-            return False, float(tempo)
+            logging.debug(f"Not a loop. BPM: {tempo:.2f}, Bars: {num_bars:.2f}, Nearest Int: {nearest_int}.")
+            return False, tempo
+
     except Exception as e:
-        logging.error(f"Error processing '{file_path}': {e}")
+        logging.error(f"Error in loop detection: {e}")
         return False, 0.0
 
-def extract_features_from_file(file_path):
+def extract_features(y):
+    """
+    Extracts MFCC features from audio time series.
+
+    Parameters:
+    - y (np.ndarray): Audio time series.
+
+    Returns:
+    - mfcc (np.ndarray): Extracted MFCC features.
+    """
     try:
-        x, sr = librosa.load(file_path, sr=SAMPLE_RATE)
-        # Ensure x has the same length as during training (padded or truncated)
-        max_len = SAMPLE_RATE * DURATION
-        if len(x) > max_len:
-            x = x[:max_len]
+        # Ensure y has the same length as during training (padded or truncated)
+        max_len = SAMPLES_PER_TRACK
+        if len(y) > max_len:
+            y = y[:max_len]
         else:
-            pad_width = max_len - len(x)
-            x = np.pad(x, (0, pad_width), 'constant')
-        # Now extract MFCC features
-        mfcc = librosa.feature.mfcc(y=x, sr=SAMPLE_RATE, n_mfcc=N_MFCC, n_mels=N_MELS, hop_length=HOP_LENGTH, n_fft=N_FFT)
+            pad_width = max_len - len(y)
+            y = np.pad(y, (0, pad_width), 'constant')
+
+        # Extract MFCC features
+        mfcc = librosa.feature.mfcc(y=y, sr=SAMPLE_RATE, n_mfcc=N_MFCC, n_mels=N_MELS, hop_length=HOP_LENGTH, n_fft=N_FFT)
         mfcc = librosa.power_to_db(mfcc, ref=np.max)
         mfcc = mfcc[..., np.newaxis]  # Add channel dimension
         return mfcc
     except Exception as e:
-        logging.error(f"Error extracting features from '{file_path}': {e}")
+        logging.error(f"Error extracting MFCC features: {e}")
         return None
 
 def label_to_category_path(label):
     category_path = label.replace('_', os.sep)
     return category_path
 
-def categorize_file(file_path, is_loop_flag):
+def categorize_file(filename, dir_names_combined, is_loop_flag):
     """
     Categorizes the file based on substrings in the filename and its directory names.
 
-    Returns the destination subfolder path.
+    Returns the destination subfolder path or None if no match is found.
     """
-    filename = os.path.basename(file_path).lower()
-    # Normalize filename: remove '&', spaces, hyphens, and underscores
-    filename_clean = filename.replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
+    filename_clean = filename.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
 
-    # Extract directory names
-    dir_names = []
-    parent_dir = os.path.dirname(file_path)
-    while parent_dir and parent_dir != os.path.dirname(parent_dir):
-        dir_names.append(os.path.basename(parent_dir).lower())
-        parent_dir = os.path.dirname(parent_dir)
-    
-    # Combine all directory names into a single string for easier matching
-    dir_names_combined = ' '.join(dir_names)
-
-    # First, check directory names for substrings
-    for category, substrings in filename_substrings.items():
-        for substring in substrings:
-            substring_clean = substring.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
-            if substring_clean in dir_names_combined:
+    # Check directory names first
+    for category, substrings in preprocessed_substrings.items():
+        for substr in substrings:
+            if substr in dir_names_combined:
                 if is_loop_flag and category in LOOP_MAPPING:
                     return LOOP_MAPPING[category]
                 elif not is_loop_flag and category in ONESHOT_MAPPING:
                     return ONESHOT_MAPPING[category]
+
     # If no match in directories, check the filename
-    for category, substrings in filename_substrings.items():
-        for substring in substrings:
-            substring_clean = substring.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
-            if substring_clean in filename_clean:
+    for category, substrings in preprocessed_substrings.items():
+        for substr in substrings:
+            if substr in filename_clean:
                 if is_loop_flag and category in LOOP_MAPPING:
                     return LOOP_MAPPING[category]
                 elif not is_loop_flag and category in ONESHOT_MAPPING:
@@ -341,14 +368,14 @@ def categorize_file(file_path, is_loop_flag):
 
     return None  # If no category matches
 
-def organize_samples(input_folder, output_folder, model, le):
+def organize_samples(input_folder, output_folder, model, le, key_extractor):
     """
     Organizes the audio samples from the input folder into the structured output folder,
-    and appends Key and BPM information to filenames.
+    normalizes the audio, and appends Key and BPM information to filenames.
     """
     # Create directory structure and get allowed categories
     structure = create_directory_structure(output_folder)
-    allowed_categories = set(structure)
+    allowed_categories = structure  # Already a set
 
     # Gather all audio files
     audio_files = []
@@ -360,65 +387,88 @@ def organize_samples(input_folder, output_folder, model, le):
     total_files = len(audio_files)
     logging.info(f"Starting organization of {total_files} files from '{input_folder}' to '{output_folder}'.")
 
+    # Predefine librosa functions' kwargs to avoid repetitive dictionary creation
+    beat_track_kwargs = {'units': 'frames'}
+    onset_detect_kwargs = {'units': 'frames'}
+
     # Process files with progress bar
     for file_path in tqdm(audio_files, desc="Organizing Samples", unit="file"):
-        loop_flag, bpm = is_loop(file_path)
-        category_path = categorize_file(file_path, loop_flag)
-
-        if category_path is None:
-            # Use model to predict category
-            features = extract_features_from_file(file_path)
-            if features is not None:
-                features = np.expand_dims(features, axis=0)  # Add batch dimension
-                prediction = model.predict(features)
-                predicted_class = np.argmax(prediction, axis=1)
-                predicted_label = le.inverse_transform(predicted_class)[0]
-                category_path = label_to_category_path(predicted_label)
-                logging.info(f"File '{file_path}' classified by model as '{category_path}'.")
-            else:
-                logging.error(f"Feature extraction failed for '{file_path}'. Skipping.")
-                continue
-        else:
-            logging.info(f"File '{file_path}' categorized by substring as '{category_path}'.")
-
-        # Ensure category_path is valid
-        destination_dir = os.path.join(output_folder, category_path)
-        os.makedirs(destination_dir, exist_ok=True)
-
-        filename = os.path.basename(file_path)
-        name, ext = os.path.splitext(filename)
-
-        # Extract category name from category_path
-        category_name = category_path.split(os.sep)[-1]
-
-        # Prepare new filename
-        new_filename = name
-        append_info = []
-
-        # Only perform key detection for tonal samples
-        if category_name in TONAL_CATEGORIES:
-            key = detect_key(file_path)
-            if key != 'Unknown':
-                append_info.append(key)
-        else:
-            key = 'Unknown'  # Not applicable
-
-        # Only append BPM if it's a loop and BPM is valid
-        if loop_flag and bpm > 0:
-            append_info.append(f"{int(round(bpm))}BPM")
-
-        if append_info:
-            new_filename += '_' + '_'.join(append_info)
-
-        new_filename += ext
-
-        destination_path = os.path.join(destination_dir, new_filename)
-
         try:
-            shutil.copy2(file_path, destination_path)
-            logging.info(f"Copied '{filename}' to '{destination_dir}' as '{new_filename}'.")
+            # Load audio once at the required sample rate
+            y, sr = librosa.load(file_path, sr=SAMPLE_RATE, mono=True)
+
+            # Determine if the audio is a loop
+            loop_flag, bpm = is_loop(y, sr, beat_track_kwargs=beat_track_kwargs, onset_detect_kwargs=onset_detect_kwargs)
+
+            # Extract directory names for categorization
+            dir_names = []
+            parent_dir = os.path.dirname(file_path)
+            while parent_dir and parent_dir != os.path.dirname(parent_dir):
+                dir_names.append(os.path.basename(parent_dir).lower())
+                parent_dir = os.path.dirname(parent_dir)
+            dir_names_combined = ''.join(dir_names)  # Concatenate for faster substring checks
+
+            # Categorize the file based on substrings
+            filename = os.path.basename(file_path)
+            category_path = categorize_file(filename, dir_names_combined, loop_flag)
+
+            if category_path is None:
+                # Use model to predict category
+                features = extract_features(y)
+                if features is not None:
+                    features = np.expand_dims(features, axis=0)  # Add batch dimension
+                    prediction = model.predict(features, verbose=0)
+                    predicted_class = np.argmax(prediction, axis=1)
+                    predicted_label = le.inverse_transform(predicted_class)[0]
+                    category_path = label_to_category_path(predicted_label)
+                    logging.debug(f"File '{file_path}' classified by model as '{category_path}'.")
+                else:
+                    logging.error(f"Feature extraction failed for '{file_path}'. Skipping.")
+                    continue
+            else:
+                logging.debug(f"File '{file_path}' categorized by substring as '{category_path}'.")
+
+            # Ensure category_path is valid
+            if category_path not in allowed_categories:
+                logging.warning(f"Category '{category_path}' not in allowed structure. Skipping file '{file_path}'.")
+                continue
+
+            destination_dir = os.path.join(output_folder, category_path)
+
+            filename_base, ext = os.path.splitext(filename)
+
+            # Prepare new filename
+            new_filename = filename_base
+            append_info = []
+
+            # Only perform key detection for tonal samples
+            category_name = os.path.basename(category_path)
+            if category_name in TONAL_CATEGORIES:
+                key = detect_key(y, sr, key_extractor)
+                if key != 'Unknown':
+                    append_info.append(key)
+            else:
+                key = 'Unknown'  # Not applicable
+
+            # Only append BPM if it's a loop and BPM is valid
+            if loop_flag and bpm > 0:
+                append_info.append(f"{int(round(bpm))}BPM")
+
+            if append_info:
+                new_filename += '_' + '_'.join(append_info)
+
+            new_filename += ext
+
+            destination_path = os.path.join(destination_dir, new_filename)
+
+            # Normalize and save the audio
+            y_normalized = librosa.util.normalize(y)
+            sf.write(destination_path, y_normalized, sr)
+
+            logging.debug(f"Copied and normalized '{filename}' to '{destination_dir}' as '{new_filename}'.")
+
         except Exception as e:
-            logging.error(f"Failed to copy '{file_path}': {e}")
+            logging.error(f"Failed to process '{file_path}': {e}")
             continue
 
 def main():
@@ -438,7 +488,10 @@ def main():
             logging.error(f"Error creating output folder '{output_folder}': {e}")
             sys.exit(1)
 
-    organize_samples(input_folder, output_folder, model, le)
+    # Pre-instantiate Essentia's KeyExtractor
+    key_extractor = ess.KeyExtractor()
+
+    organize_samples(input_folder, output_folder, model, le, key_extractor)
     print("Organization complete.")
     logging.info("Organization complete.")
 
