@@ -44,8 +44,8 @@ This project provides a set of scripts to organize and classify audio samples in
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/yourusername/audio-sample-organizer.git
-   cd audio-sample-organizer
+   git clone https://github.com/repeat98/sample_sorter.git
+   cd sample_sorter
    ```
 
 2. **Create a Virtual Environment (Recommended)**:
@@ -236,4 +236,4 @@ For any questions or issues, please contact [jannik.assfalg@gmail.com](mailto:ja
 
 **GitHub Repository**:
 
-[https://github.com/yourusername/audio-sample-organizer](https://github.com/yourusername/audio-sample-organizer)
+[https://github.com/repeat98/sample_sorter](https://github.com/repeat98/sample_sorter)
