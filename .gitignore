@@ -7,3 +7,4 @@ venv/
 .DS_Store
 train/
 organize_samples.log
+organize_samples.log
