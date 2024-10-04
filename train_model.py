@@ -12,7 +12,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.utils import to_categorical
 import pickle
-from tqdm import tqdm  # Added for progress bars
+from tqdm import tqdm  # For progress bars
 
 # --------------------------- Parameters ---------------------------
 
@@ -44,47 +44,45 @@ os.makedirs('model', exist_ok=True)
 
 # ----------------------- Data Loading -----------------------
 
+from tqdm import tqdm
+
 def load_audio_files(dataset_path, sample_rate, duration, audio_extensions):
     X = []
     labels = []
     max_len = sample_rate * duration
     success_count = 0
 
-    # Get total number of files for the progress bar
-    total_files = sum(len(files) for _, _, files in os.walk(dataset_path))
-
-    # Traverse the directory structure
-    pbar = tqdm(total=total_files, desc="Loading audio files", unit="files")
+    # Gather all file paths
+    file_paths = []
     for root, dirs, files in os.walk(dataset_path):
         for file in files:
-            pbar.update(1)
             if file.lower().endswith(audio_extensions):
                 file_path = os.path.join(root, file)
-                # Extract labels based on the last directory in the path
-                # Get the relative path from dataset_path
-                rel_path = os.path.relpath(file_path, dataset_path)
-                parts = rel_path.split(os.sep)
-                if len(parts) >= 2:
-                    label = parts[-2]  # The last directory before the file name
-                else:
-                    label = os.path.basename(root)
+                file_paths.append((file_path, root))
 
-                # Load audio file
-                try:
-                    signal, sr = librosa.load(file_path, sr=sample_rate)
-                    if len(signal) > max_len:
-                        signal = signal[:max_len]
-                    else:
-                        pad_width = max_len - len(signal)
-                        signal = np.pad(signal, (0, pad_width), 'constant')
+    # Loop over file paths with progress bar
+    for file_path, root in tqdm(file_paths, desc="Loading audio files"):
+        # Get the relative path from dataset root to the parent directory of the file
+        relative_dir = os.path.relpath(root, dataset_path)
+        # Use this relative directory path as the label
+        label = relative_dir.replace(os.sep, '_')  # Replace os.sep with '_'
 
-                    X.append(signal)
-                    labels.append(label)
-                    success_count += 1
-                except Exception as e:
-                    print(f"Error loading {file_path}: {e}")
-    pbar.close()
-    print(f"\nLoaded {success_count} samples successfully.")
+        # Load audio file
+        try:
+            signal, sr = librosa.load(file_path, sr=sample_rate)
+            if len(signal) > max_len:
+                signal = signal[:max_len]
+            else:
+                pad_width = max_len - len(signal)
+                signal = np.pad(signal, (0, pad_width), 'constant')
+
+            X.append(signal)
+            labels.append(label)
+            success_count += 1
+        except Exception as e:
+            print(f"Error loading {file_path}: {e}")
+
+    print(f"Loaded {success_count} samples successfully.")
     return np.array(X), np.array(labels)
 
 print("Loading audio files...")
@@ -126,12 +124,6 @@ filtered_labels = labels[filtered_indices]
 print(f"Filtered dataset size: {X_filtered.shape[0]} samples")
 print(f"Number of classes after filtering: {len(classes_to_keep)}")
 
-# Re-encode labels after filtering
-le_filtered = LabelEncoder()
-y_encoded_filtered = le_filtered.fit_transform(filtered_labels)
-y_categorical = to_categorical(y_encoded_filtered)
-num_classes_filtered = y_categorical.shape[1]
-
 # Print filtered class distribution
 print("\nClass distribution after filtering:")
 filtered_class_counts = Counter(filtered_labels)
@@ -142,9 +134,7 @@ for label, count in filtered_class_counts.items():
 
 def extract_features(X, sample_rate, n_mels, hop_length, n_fft, n_mfcc=13):
     mfccs = []
-    pbar = tqdm(total=len(X), desc="Extracting features", unit="samples")
-    for x in X:
-        pbar.update(1)
+    for x in tqdm(X, desc="Extracting features"):
         try:
             mfcc = librosa.feature.mfcc(y=x, sr=sample_rate, n_mfcc=n_mfcc,
                                         n_mels=n_mels, hop_length=hop_length, n_fft=n_fft)
@@ -153,7 +143,6 @@ def extract_features(X, sample_rate, n_mels, hop_length, n_fft, n_mfcc=13):
         except Exception as e:
             print(f"Error extracting features: {e}")
             mfccs.append(np.zeros((n_mfcc, int(np.ceil(len(x)/hop_length))), dtype=np.float32))  # Placeholder
-    pbar.close()
     return np.array(mfccs)
 
 print("\nExtracting features...")
@@ -165,8 +154,10 @@ print(f"Feature shape: {X_features.shape}")
 
 print("\nSplitting data into train and validation sets...")
 X_train, X_val, y_train, y_val = train_test_split(
-    X_features, y_categorical, test_size=VALIDATION_SPLIT, random_state=42, stratify=y_categorical
+    X_features, y_filtered, test_size=VALIDATION_SPLIT, random_state=42, stratify=y_filtered
 )
+y_train_categorical = to_categorical(y_train)
+y_val_categorical = to_categorical(y_val)
 print(f"Training samples: {X_train.shape[0]}, Validation samples: {X_val.shape[0]}")
 
 # -------------------- Model Building --------------------
@@ -204,23 +195,24 @@ def build_model(input_shape, num_classes):
     return model
 
 input_shape = X_train.shape[1:]
+num_classes_filtered = len(classes_to_keep)
 model = build_model(input_shape, num_classes_filtered)
 model.summary()
 
 # Save the label encoder
 with open("model/label_encoder.pkl", "wb") as le_file:
-    pickle.dump(le_filtered, le_file)
+    pickle.dump(le, le_file)
 print("Label encoder saved to 'model/label_encoder.pkl'")
 
 # Print the class labels
 print("Model Class Labels:")
-print(le_filtered.classes_)
+print(le.classes_)
 
 # -------------------- Compilation --------------------
 
 model.compile(
     optimizer='adam',
-    loss='categorical_crossentropy',
+    loss='sparse_categorical_crossentropy',
     metrics=['accuracy']
 )
 
@@ -237,8 +229,8 @@ callbacks = [
 print("\nCalculating class weights...")
 class_weights_values = class_weight.compute_class_weight(
     class_weight='balanced',
-    classes=np.unique(y_encoded_filtered),
-    y=y_encoded_filtered
+    classes=np.unique(y_filtered),
+    y=y_filtered
 )
 class_weights_dict = dict(enumerate(class_weights_values))
 print(f"Class weights: {class_weights_dict}")
@@ -287,10 +279,10 @@ plot_history(history)
 print("\nEvaluating model...")
 y_pred = model.predict(X_val)
 y_pred_classes = np.argmax(y_pred, axis=1)
-y_true = np.argmax(y_val, axis=1)
+y_true = y_val
 
 print("\nClassification Report:")
-print(classification_report(y_true, y_pred_classes, target_names=le_filtered.classes_, zero_division=0))
+print(classification_report(y_true, y_pred_classes, target_names=le.inverse_transform(range(num_classes_filtered)), zero_division=0))
 
 # Confusion Matrix
 def plot_confusion_matrix(y_true, y_pred, classes):
@@ -317,7 +309,7 @@ def plot_confusion_matrix(y_true, y_pred, classes):
     plt.tight_layout()
     plt.show()
 
-plot_confusion_matrix(y_true, y_pred_classes, le_filtered.classes_)
+plot_confusion_matrix(y_true, y_pred_classes, le.inverse_transform(range(num_classes_filtered)))
 
 # -------------------- Save the Model --------------------
 
