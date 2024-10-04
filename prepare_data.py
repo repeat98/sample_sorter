@@ -19,102 +19,91 @@ logging.basicConfig(
 
 # Define substrings for each class. These should be lowercase for case-insensitive matching.
 filename_substrings = {
-    # Drums
+    # Loops/Drums
+    'Full Drum Loop': ['full drum loop', 'drum loop', 'drums', 'drum', 'breakbeat', 'break', 'drum break'],
+    'Hihat': ['hihat loop', 'hi-hat loop', 'hat loop', 'closed hat loop', 'open hat loop'],
+    'Percussion': ['perc loop', 'percussion loop', 'shaker loop', 'tambourine loop', 'conga loop', 'bongo loop'],
+
+    # Loops/Sounds
+    'Bass': ['bass loop', 'bassline loop', 'sub bass loop'],
+    'Chords': ['chord loop', 'chords loop', 'keyboard loop', 'piano loop', 'synth chords loop'],
+    'Synth': ['synth loop', 'synthesizer loop', 'synth lead loop', 'synth pad loop'],
+    'Voice': ['vocal loop', 'vocals loop', 'voice loop', 'singing loop'],
+
+    # Oneshots/Drums
     'Clap': ['clap', 'snap', 'handclap', 'hand clap'],
     'Cymbal': ['cymbal', 'china', 'ride cymbal', 'splash cymbal'],
+    'Hand Percussion': ['hand percussion', 'hand drums', 'conga', 'bongo', 'djembe', 'tabla', 'shaker', 'tambourine', 'cowbell'],
     'Hihat': ['hihat', 'hi-hat', 'hat', 'closed hat', 'open hat'],
     'Kick': ['kick', 'bass drum', 'bd', 'kick drum'],
-    'Percussion': ['perc', 'percussion', 'shaker', 'tambourine', 'conga', 'bongo', 'ashiko', 'caxixi', 'dumbek', 'shekere', 'talking drum', 'djuns djuns'],
+    'Percussion': ['perc', 'percussion', 'shaker', 'tambourine', 'cowbell'],
     'Snare': ['snare', 'snr', 'rimshot', 'brushes'],
     'Tom': ['tom', 'toms', 'floor tom', 'rack tom'],
-    'Breakbeat': ['breakbeat', 'break', 'drum break'],
 
-    # Sounds (Tonal)
+    # Oneshots/Sounds
+    'Ambience & FX': ['ambience', 'ambient', 'fx', 'effects', 'sfx', 'reverb', 'delay', 'echo', 'atmosphere', 'background noise'],
     'Bass': ['bass', 'bassline', 'sub bass'],
-    'Chords': ['chord', 'chords', 'keyboard', 'piano', 'synth chords'],
-    'Melody': ['melody', 'lead', 'lead synth', 'lead guitar'],
-    'Voice': ['voice', 'vocals', 'vocal', 'singing'],
     'Brass': ['brass', 'trumpet', 'saxophone', 'trombone'],
-    'Chord': ['chord', 'chords', 'harmonic', 'harmony'],
-    'Guitar & Plucked': ['guitar', 'pluck', 'plucked', 'acoustic guitar', 'electric guitar'],
-    'Lead': ['lead', 'lead part', 'lead instrument'],
-    'Mallets': ['mallet', 'mallets', 'xylophone', 'marimba'],
+    'Chords': ['chord', 'chords', 'keyboard', 'piano', 'synth chords'],
+    'Guitar & Plucked': ['guitar', 'pluck', 'plucked', 'acoustic guitar', 'electric guitar', 'harp', 'banjo', 'ukulele', 'mandolin'],
+    'Lead': ['lead', 'lead synth', 'lead guitar', 'melody'],
+    'Mallets': ['mallet', 'mallets', 'xylophone', 'marimba', 'vibraphone', 'glockenspiel'],
     'Strings': ['string', 'strings', 'violin', 'cello', 'orchestra'],
-    'Woodwind': ['woodwind', 'flute', 'sax', 'clarinet', 'oboe'],
-    'Synth Stabs': ['synth stabs'],
-    # Sounds (Non-Tonal)
-    'FX': ['fx', 'effects', 'sfx', 'reverb', 'delay', 'echo'],
-    'Ambience & FX': ['ambience', 'ambient', 'fx', 'atmosphere', 'background noise'],
-    # Additional classes can be added here
+    'Voice': ['voice', 'vocals', 'vocal', 'singing'],
+    'Woodwind': ['woodwind', 'flute', 'sax', 'clarinet', 'oboe', 'bassoon'],
+    # Additional categories can be added here
 }
 
 # Extended class mappings
 LOOP_MAPPING = {
     # Loops/Drums
-    'Breakbeat': 'Loops/Drums/Breakbeat',
+    'Full Drum Loop': 'Loops/Drums/Full Drum Loop',
     'Hihat': 'Loops/Drums/Hihat',
     'Percussion': 'Loops/Drums/Percussion',
 
-    # Loops/Sounds (Tonal)
+    # Loops/Sounds
     'Bass': 'Loops/Sounds/Bass',
     'Chords': 'Loops/Sounds/Chords',
-    'Melody': 'Loops/Sounds/Melody',
-    'Voice': 'Loops/Sounds/Voice',
     'Synth': 'Loops/Sounds/Synth',
-    'Brass': 'Loops/Sounds/Brass',
-    'Chord': 'Loops/Sounds/Chord',
-    'Guitar & Plucked': 'Loops/Sounds/Guitar & Plucked',
-    'Lead': 'Loops/Sounds/Lead',
-    'Mallets': 'Loops/Sounds/Mallets',
-    'Strings': 'Loops/Sounds/Strings',
-    'Woodwind': 'Loops/Sounds/Woodwind',
-    'Synth Stabs': 'Loops/Sounds/Synth Stabs',
-
-    # Loops/Sounds (Non-Tonal)
-    'FX': 'Loops/Sounds/FX',
-    # Add more loop-specific categories if needed
+    'Voice': 'Loops/Sounds/Voice',
 }
 
 ONESHOT_MAPPING = {
     # Oneshots/Drums
     'Clap': 'Oneshots/Drums/Clap',
     'Cymbal': 'Oneshots/Drums/Cymbal',
+    'Hand Percussion': 'Oneshots/Drums/Hand Percussion',
     'Hihat': 'Oneshots/Drums/Hihat',
     'Kick': 'Oneshots/Drums/Kick',
     'Percussion': 'Oneshots/Drums/Percussion',
     'Snare': 'Oneshots/Drums/Snare',
     'Tom': 'Oneshots/Drums/Tom',
 
-    # Oneshots/Sounds (Tonal)
+    # Oneshots/Sounds
     'Ambience & FX': 'Oneshots/Sounds/Ambience & FX',
     'Bass': 'Oneshots/Sounds/Bass',
     'Brass': 'Oneshots/Sounds/Brass',
-    'Chord': 'Oneshots/Sounds/Chord',
+    'Chords': 'Oneshots/Sounds/Chords',
     'Guitar & Plucked': 'Oneshots/Sounds/Guitar & Plucked',
     'Lead': 'Oneshots/Sounds/Lead',
     'Mallets': 'Oneshots/Sounds/Mallets',
     'Strings': 'Oneshots/Sounds/Strings',
-    'Synth Stabs': 'Oneshots/Sounds/Synth Stabs',
     'Voice': 'Oneshots/Sounds/Voice',
     'Woodwind': 'Oneshots/Sounds/Woodwind',
-    # Add more oneshot-specific categories if needed
 }
 
 # Tonal categories for which key detection should be performed
 TONAL_CATEGORIES = [
     'Bass',
     'Chords',
-    'Melody',
+    'Synth',
     'Voice',
     'Brass',
-    'Chord',
     'Guitar & Plucked',
     'Lead',
     'Mallets',
     'Strings',
     'Woodwind',
-    'Synth Stabs',
-    
 ]
 
 # Combined list of all possible substrings for categorization
@@ -136,45 +125,32 @@ def create_directory_structure(base_path):
     """
     structure = [
         # Loops/Drums
-        'Loops/Drums/Breakbeat',
+        'Loops/Drums/Full Drum Loop',
         'Loops/Drums/Hihat',
         'Loops/Drums/Percussion',
-
         # Loops/Sounds
         'Loops/Sounds/Bass',
         'Loops/Sounds/Chords',
-        'Loops/Sounds/FX',
         'Loops/Sounds/Synth',
         'Loops/Sounds/Voice',
-        'Loops/Sounds/Melody',
-        'Loops/Sounds/Brass',
-        'Loops/Sounds/Chord',
-        'Loops/Sounds/Guitar & Plucked',
-        'Loops/Sounds/Lead',
-        'Loops/Sounds/Mallets',
-        'Loops/Sounds/Strings',
-        'Loops/Sounds/Woodwind',
-        'Loops/Sounds/Synth Stabs',
-
         # Oneshots/Drums
         'Oneshots/Drums/Clap',
         'Oneshots/Drums/Cymbal',
+        'Oneshots/Drums/Hand Percussion',
         'Oneshots/Drums/Hihat',
         'Oneshots/Drums/Kick',
         'Oneshots/Drums/Percussion',
         'Oneshots/Drums/Snare',
         'Oneshots/Drums/Tom',
-
         # Oneshots/Sounds
         'Oneshots/Sounds/Ambience & FX',
         'Oneshots/Sounds/Bass',
         'Oneshots/Sounds/Brass',
-        'Oneshots/Sounds/Chord',
+        'Oneshots/Sounds/Chords',
         'Oneshots/Sounds/Guitar & Plucked',
         'Oneshots/Sounds/Lead',
         'Oneshots/Sounds/Mallets',
         'Oneshots/Sounds/Strings',
-        'Oneshots/Sounds/Synth Stabs',
         'Oneshots/Sounds/Voice',
         'Oneshots/Sounds/Woodwind',
     ]
@@ -285,22 +261,23 @@ def categorize_file(file_path, is_loop_flag):
     dir_names_combined = ' '.join(dir_names)
 
     # First, check directory names for substrings
-    for substring in ALL_SUBSTRINGS:
-        substring_clean = substring.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
-        if substring_clean in dir_names_combined:
-            if is_loop_flag and substring in LOOP_MAPPING:
-                return LOOP_MAPPING[substring]
-            elif not is_loop_flag and substring in ONESHOT_MAPPING:
-                return ONESHOT_MAPPING[substring]
-
+    for category, substrings in filename_substrings.items():
+        for substring in substrings:
+            substring_clean = substring.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
+            if substring_clean in dir_names_combined:
+                if is_loop_flag and category in LOOP_MAPPING:
+                    return LOOP_MAPPING[category]
+                elif not is_loop_flag and category in ONESHOT_MAPPING:
+                    return ONESHOT_MAPPING[category]
     # If no match in directories, check the filename
-    for substring in ALL_SUBSTRINGS:
-        substring_clean = substring.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
-        if substring_clean in filename_clean:
-            if is_loop_flag and substring in LOOP_MAPPING:
-                return LOOP_MAPPING[substring]
-            elif not is_loop_flag and substring in ONESHOT_MAPPING:
-                return ONESHOT_MAPPING[substring]
+    for category, substrings in filename_substrings.items():
+        for substring in substrings:
+            substring_clean = substring.lower().replace('&', '').replace(' ', '').replace('-', '').replace('_', '')
+            if substring_clean in filename_clean:
+                if is_loop_flag and category in LOOP_MAPPING:
+                    return LOOP_MAPPING[category]
+                elif not is_loop_flag and category in ONESHOT_MAPPING:
+                    return ONESHOT_MAPPING[category]
 
     return None  # If no category matches
 
