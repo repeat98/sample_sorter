@@ -22,14 +22,16 @@ logging.basicConfig(
 
 # --------------------------- Parameters ---------------------------
 
-# Audio processing parameters (should match those used in training)
-SAMPLE_RATE = 22050
-DURATION = 5  # Duration to which all audio files will be truncated or padded
+# Processing sample rates
+PROC_SAMPLE_RATE = 22050  # For loop detection and feature extraction
+KEY_SAMPLE_RATE = 16000   # For key detection
+
+DURATION = 5  # Duration to which all audio files will be truncated or padded (in seconds)
 N_MELS = 128
 HOP_LENGTH = 512
 N_FFT = 2048
 N_MFCC = 20  # Should match the value in training script
-SAMPLES_PER_TRACK = SAMPLE_RATE * DURATION
+SAMPLES_PER_TRACK = PROC_SAMPLE_RATE * DURATION
 
 # Tonal categories for which key detection should be performed
 TONAL_CATEGORIES = {
@@ -328,7 +330,7 @@ def extract_features(y):
             y = np.pad(y, (0, pad_width), 'constant')
 
         # Extract MFCC features
-        mfcc = librosa.feature.mfcc(y=y, sr=SAMPLE_RATE, n_mfcc=N_MFCC, n_mels=N_MELS, hop_length=HOP_LENGTH, n_fft=N_FFT)
+        mfcc = librosa.feature.mfcc(y=y, sr=PROC_SAMPLE_RATE, n_mfcc=N_MFCC, n_mels=N_MELS, hop_length=HOP_LENGTH, n_fft=N_FFT)
         mfcc = librosa.power_to_db(mfcc, ref=np.max)
         mfcc = mfcc[..., np.newaxis]  # Add channel dimension
         return mfcc
@@ -394,11 +396,23 @@ def organize_samples(input_folder, output_folder, model, le, key_extractor):
     # Process files with progress bar
     for file_path in tqdm(audio_files, desc="Organizing Samples", unit="file"):
         try:
-            # Load audio once at the required sample rate
-            y, sr = librosa.load(file_path, sr=SAMPLE_RATE, mono=True)
+            # Load original audio at its original sample rate
+            y_orig, sr_orig = librosa.load(file_path, sr=None, mono=True)
+
+            # Resample for processing (loop detection and feature extraction) if needed
+            if sr_orig != PROC_SAMPLE_RATE:
+                y_proc = librosa.resample(y_orig, orig_sr=sr_orig, target_sr=PROC_SAMPLE_RATE)
+            else:
+                y_proc = y_orig
+
+            # Resample for key detection if needed
+            if sr_orig != KEY_SAMPLE_RATE:
+                y_key = librosa.resample(y_orig, orig_sr=sr_orig, target_sr=KEY_SAMPLE_RATE)
+            else:
+                y_key = y_orig
 
             # Determine if the audio is a loop
-            loop_flag, bpm = is_loop(y, sr, beat_track_kwargs=beat_track_kwargs, onset_detect_kwargs=onset_detect_kwargs)
+            loop_flag, bpm = is_loop(y_proc, PROC_SAMPLE_RATE, beat_track_kwargs=beat_track_kwargs, onset_detect_kwargs=onset_detect_kwargs)
 
             # Extract directory names for categorization
             dir_names = []
@@ -414,7 +428,7 @@ def organize_samples(input_folder, output_folder, model, le, key_extractor):
 
             if category_path is None:
                 # Use model to predict category
-                features = extract_features(y)
+                features = extract_features(y_proc)
                 if features is not None:
                     features = np.expand_dims(features, axis=0)  # Add batch dimension
                     prediction = model.predict(features, verbose=0)
@@ -444,7 +458,7 @@ def organize_samples(input_folder, output_folder, model, le, key_extractor):
             # Only perform key detection for tonal samples
             category_name = os.path.basename(category_path)
             if category_name in TONAL_CATEGORIES:
-                key = detect_key(y, sr, key_extractor)
+                key = detect_key(y_key, KEY_SAMPLE_RATE, key_extractor)
                 if key != 'Unknown':
                     append_info.append(key)
             else:
@@ -461,11 +475,13 @@ def organize_samples(input_folder, output_folder, model, le, key_extractor):
 
             destination_path = os.path.join(destination_dir, new_filename)
 
-            # Normalize and save the audio
-            y_normalized = librosa.util.normalize(y)
-            sf.write(destination_path, y_normalized, sr)
+            # Normalize the original audio to have maximum amplitude of 1.0
+            y_normalized = librosa.util.normalize(y_orig)
 
-            logging.debug(f"Copied and normalized '{filename}' to '{destination_dir}' as '{new_filename}'.")
+            # Save the normalized audio to the destination path with original sample rate
+            sf.write(destination_path, y_normalized, sr_orig)
+
+            logging.debug(f"Copied and normalized '{filename}' to '{destination_dir}' as '{new_filename}' with original sample rate {sr_orig} Hz.")
 
         except Exception as e:
             logging.error(f"Failed to process '{file_path}': {e}")
