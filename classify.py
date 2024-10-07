@@ -396,7 +396,7 @@ def organize_samples(input_folder, output_folder, model, le, key_extractor):
     # Process files with progress bar
     for file_path in tqdm(audio_files, desc="Organizing Samples", unit="file"):
         try:
-            # Load original audio at its original sample rate
+            # Load original audio at its original sample rate for processing (mono)
             y_orig, sr_orig = librosa.load(file_path, sr=None, mono=True)
 
             # Resample for processing (loop detection and feature extraction) if needed
@@ -475,13 +475,46 @@ def organize_samples(input_folder, output_folder, model, le, key_extractor):
 
             destination_path = os.path.join(destination_dir, new_filename)
 
-            # Normalize the original audio to have maximum amplitude of 1.0
-            y_normalized = librosa.util.normalize(y_orig)
+            # -------------------- Modified Saving Process --------------------
 
-            # Save the normalized audio to the destination path with original sample rate
-            sf.write(destination_path, y_normalized, sr_orig)
+            # Retrieve original audio file's metadata
+            try:
+                info = sf.info(file_path)
+            except RuntimeError as e:
+                logging.error(f"Cannot retrieve info for '{file_path}': {e}")
+                continue
 
-            logging.debug(f"Copied and normalized '{filename}' to '{destination_dir}' as '{new_filename}' with original sample rate {sr_orig} Hz.")
+            # Load the original audio with original channels
+            try:
+                y_full, sr_full = sf.read(file_path, always_2d=True if info.channels > 1 else False)
+            except RuntimeError as e:
+                logging.error(f"Cannot read '{file_path}': {e}")
+                continue
+
+            # Normalize to -6 dBFS
+            desired_max_amplitude = 10**(-6/20)  # Approximately 0.501187
+            current_max = np.max(np.abs(y_full))
+            if current_max > 0:
+                normalization_factor = desired_max_amplitude / current_max
+                y_normalized_full = y_full * normalization_factor
+            else:
+                y_normalized_full = y_full  # Silence remains unchanged
+
+            # Save the normalized audio with the same format, subtype, and channels
+            try:
+                sf.write(
+                    destination_path,
+                    y_normalized_full,
+                    sr_full,
+                    subtype=info.subtype,
+                    format=info.format
+                )
+            except RuntimeError as e:
+                logging.error(f"Cannot write '{destination_path}': {e}")
+                continue
+
+            # Log the successful saving
+            logging.debug(f"Copied and normalized '{filename}' to '{destination_dir}' as '{new_filename}' with original format.")
 
         except Exception as e:
             logging.error(f"Failed to process '{file_path}': {e}")

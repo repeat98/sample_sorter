@@ -6,6 +6,7 @@ import numpy as np
 from scipy.signal import correlate
 import soundfile as sf
 from tqdm import tqdm
+import logging
 import csv
 
 def is_audio_file(filename):
@@ -69,36 +70,74 @@ def estimate_bpm(y, sr):
         print(f"Error estimating BPM: {e}")
         return None, None
 
-def is_loop(y, sr, duration, num_transients, bpm, tolerance=0.05):
+def is_loop(file_path, bpm_threshold=30, beats_per_bar=4, tolerance=0.05, transient_threshold=1, min_duration=2.0):
     """
-    Determine if the audio is a loop based on:
-    - Rhythmicity (BPM extractable)
-    - Length is a multiple of a musical bar
-    - More than one transient
+    Determines if a file is a loop based on BPM, duration, and transients.
+
+    Parameters:
+    - file_path (str): Path to the audio file.
+    - bpm_threshold (float): Minimum BPM to consider as rhythmic.
+    - beats_per_bar (int): Number of beats in a musical bar.
+    - tolerance (float): Acceptable deviation when checking bar multiples.
+    - transient_threshold (int): Minimum number of transients to consider as a loop.
+    - min_duration (float): Minimum duration in seconds to consider as a loop.
+
+    Returns:
+    - bool: True if loop, False otherwise.
+    - bpm (float): Estimated BPM of the loop.
     """
-    if bpm is None or bpm == 0:
-        return False
+    try:
+        # Load audio file
+        y, sr = librosa.load(file_path, sr=None, mono=True)
+        
+        # Normalize the audio
+        y = librosa.util.normalize(y)
 
-    # Assume 4/4 time signature
-    beats_per_bar = 4
-    bar_duration = (60 / bpm) * beats_per_bar  # Duration of one bar in seconds
+        # Estimate the tempo (BPM) and track beats
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        duration = librosa.get_duration(y=y, sr=sr)
 
-    # Calculate how many bars fit into the audio duration
-    num_bars = duration / bar_duration
+        # If the sample is too short, it's unlikely to be a loop
+        if duration < min_duration:
+            logging.info(f"File '{file_path}' is too short ({duration:.2f} seconds) to be a loop.")
+            return False, float(tempo)
+        
+        # If the tempo is below the threshold, it's unlikely to be a rhythmic loop
+        if tempo < bpm_threshold:
+            logging.info(f"File '{file_path}' tempo {tempo} BPM below threshold {bpm_threshold} BPM.")
+            return False, float(tempo)
+        
+        # Detect transients (onset events)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        transients = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr)
 
-    # Ensure num_bars is a scalar float
-    if isinstance(num_bars, np.ndarray):
-        try:
-            num_bars = num_bars.item()
-        except:
-            print(f"Unexpected type for num_bars: {type(num_bars)}")
-            return False
+        # If there's only one transient, it's unlikely to be a loop
+        if len(transients) <= transient_threshold:
+            logging.info(f"File '{file_path}' has {len(transients)} transient(s), which is too few to be a loop.")
+            return False, float(tempo)
+        
+        # Calculate duration per beat and per bar
+        beat_duration = 60.0 / tempo
+        bar_duration = beats_per_bar * beat_duration
 
-    # Check if num_bars is approximately an integer
-    if np.isclose(num_bars, np.round(num_bars), atol=tolerance * num_bars):
-        if num_transients > 1:
-            return True
-    return False
+        # Number of bars (could be fractional)
+        num_bars = duration / bar_duration
+
+        # Check if num_bars is close to an integer power of 2 (1, 2, 4, 8, 16, ...)
+        if num_bars < 0.5:
+            logging.info(f"File '{file_path}' has {num_bars:.2f} bars, which is too short to be a loop.")
+            return False, float(tempo)  # Too short to be a loop
+
+        nearest_power = 2 ** round(math.log(num_bars, 2))
+        if abs(num_bars - nearest_power) / nearest_power <= tolerance:
+            logging.info(f"File '{file_path}' identified as loop with {tempo} BPM and approximately {nearest_power} bars.")
+            return True, float(tempo)
+        else:
+            logging.info(f"File '{file_path}' not a loop. BPM: {tempo}, Bars: {num_bars:.2f}, Nearest Power: {nearest_power}.")
+            return False, float(tempo)
+    except Exception as e:
+        logging.error(f"Error processing '{file_path}': {e}")
+        return False, 0.0
 
 def classify_sample(y, sr, file_path, tolerance=0.05):
     """

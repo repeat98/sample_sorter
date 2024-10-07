@@ -9,7 +9,7 @@ import librosa
 import numpy as np
 import logging
 
-# Setup logging
+# Setup primary logging for general information
 logging.basicConfig(
     filename='organize_samples.log',
     filemode='a',
@@ -17,57 +17,160 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Define substrings for each class. These should be lowercase for case-insensitive matching.
+# Setup separate logging for skipped files
+skipped_logger = logging.getLogger('skipped_files')
+skipped_logger.setLevel(logging.WARNING)
+# Create a file handler for skipped files
+skipped_handler = logging.FileHandler('skipped_files.log')
+skipped_handler.setLevel(logging.WARNING)
+# Create a logging format
+skipped_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+skipped_handler.setFormatter(skipped_formatter)
+# Add the handler to the skipped_logger
+skipped_logger.addHandler(skipped_handler)
+
 filename_substrings = {
     # Loops/Drums
-    'Full Drum Loop': ['full drum loop', 'drum loop', 'drums', 'drum', 'breakbeat', 'break', 'drum break'],
-    'Hihat': ['hihat loop', 'hi-hat loop', 'hat loop', 'closed hat loop', 'open hat loop'],
-    'Percussion': ['perc loop', 'percussion loop', 'shaker loop', 'tambourine loop', 'conga loop', 'bongo loop'],
+    'Full Drum Loops': [
+        'full drum loop', 'drum loop', 'drums', 'drum', 
+        'breakbeat', 'break', 'drum break', 'fill',
+        'drumfill', 'drumfills'
+    ],
+    'Hihat Loops': [
+        'hihat loop', 'hi-hat loop', 'hat loop', 
+        'closed hat loop', 'open hat loop', 'HH-', 'hihat'
+    ],
+    'Percussion Loops': [
+        'perc loop', 'percussion loop', 'shaker loop', 
+        'tambourine loop', 'conga loop', 'bongo loop',
+        'timbale', 'sidestick', 'baya', 'castanet', 
+        'guiro', 'maracas', 'triangle', 'vibraslap', 
+        'caxixi', 'cabasa','top loop', 'toploops'
+    ],
 
     # Loops/Sounds
-    'Bass': ['bass loop', 'bassline loop', 'sub bass loop'],
-    'Chords': ['chord loop', 'chords loop', 'keyboard loop', 'piano loop', 'synth chords loop'],
-    'Synth': ['synth loop', 'synthesizer loop', 'synth lead loop', 'synth pad loop'],
-    'Voice': ['vocal loop', 'vocals loop', 'voice loop', 'singing loop'],
+    'Bass Loops': [
+        'bass loop', 'bassline loop', 'sub bass loop', 
+        'bass', 'bassline', 'sub bass'
+    ],
+    'Chord Loops': [
+        'chord loop', 'chords loop', 'keyboard loop', 
+        'piano loop', 'synth chords loop', 'stab', 'pad',
+        'chordshot', 'chordshots', 'chordloop', 'chordloops', 
+        'chordoneshot', 'chordoneshots', 'keyloop', 'keyloops'
+    ],
+    'Synth Loops': [
+        'synth loop', 'synthesizer loop', 'synth lead loop', 
+        'synth pad loop', 'syn'
+        
+    ],
+    'Voice Loops': [
+        'vocal loop', 'vocals loop', 'voice loop', 
+        'singing loop', 'vox', 'voice', 'vocals', 
+        'vocal', 'singing'
+    ],
 
     # Oneshots/Drums
-    'Clap': ['clap', 'snap', 'handclap', 'hand clap'],
-    'Cymbal': ['cymbal', 'china', 'ride cymbal', 'splash cymbal'],
-    'Hand Percussion': ['hand percussion', 'hand drums', 'conga', 'bongo', 'djembe', 'tabla', 'shaker', 'tambourine', 'cowbell'],
-    'Hihat': ['hihat', 'hi-hat', 'hat', 'closed hat', 'open hat'],
-    'Kick': ['kick', 'bass drum', 'bd', 'kick drum'],
-    'Percussion': ['perc', 'percussion', 'shaker', 'tambourine', 'cowbell'],
-    'Snare': ['snare', 'snr', 'rimshot', 'brushes'],
-    'Tom': ['tom', 'toms', 'floor tom', 'rack tom'],
+    'Clap': [
+        'clap', 'snap', 'handclap', 'hand clap'
+    ],
+    'Cymbal': [
+        'cymbal', 'china', 'ride cymbal', 
+        'splash cymbal', 'ride', 'crash', 'orch cymbal', 'orch cym'
+    ],
+    'Hand Percussion': [
+        'hand percussion', 'hand drums', 'conga', 'bongo', 
+        'djembe', 'tabla', 'shaker', 'tambourine', 
+        'cowbell', 'baya', 'castanet', 'guiro', 
+        'maracas', 'agogo bell', 'triangle', 
+        'vibraslap', 'caxixi', 'cabasa', 
+        'sidestick'
+    ],
+    'Kick': [
+        'kick', 'bass drum', 'bd', 
+        'kick drum', 'bassdrum'
+    ],
+    'Percussion': [
+        'perc', 'percussion', 'shaker', 
+        'tambourine', 'cowbell', 'baya', 
+        'timbale', 'sidestick', 'castanet', 
+        'guiro', 'maracas', 'triangle', 
+        'vibraslap', 'caxixi', 'cabasa'
+    ],
+    'Snare': [
+        'snare', 'snr', 'rimshot', 'brushes', 
+        'sd-', 'sleigh bell', 'donkamatic'
+    ],
+    'Tom': [
+        'tom', 'toms', 'floor tom', 'rack tom'
+    ],
 
     # Oneshots/Sounds
-    'Ambience & FX': ['ambience', 'ambient', 'fx', 'effects', 'sfx', 'reverb', 'delay', 'echo', 'atmosphere', 'background noise'],
-    'Bass': ['bass', 'bassline', 'sub bass'],
-    'Brass': ['brass', 'trumpet', 'saxophone', 'trombone'],
-    'Chords': ['chord', 'chords', 'keyboard', 'piano', 'synth chords'],
-    'Guitar & Plucked': ['guitar', 'pluck', 'plucked', 'acoustic guitar', 'electric guitar', 'harp', 'banjo', 'ukulele', 'mandolin'],
-    'Lead': ['lead', 'lead synth', 'lead guitar', 'melody'],
-    'Mallets': ['mallet', 'mallets', 'xylophone', 'marimba', 'vibraphone', 'glockenspiel'],
-    'Strings': ['string', 'strings', 'violin', 'cello', 'orchestra'],
-    'Voice': ['voice', 'vocals', 'vocal', 'singing'],
-    'Woodwind': ['woodwind', 'flute', 'sax', 'clarinet', 'oboe', 'bassoon'],
+    'Ambience & FX': [
+        'ambience', 'ambient', 'fx', 'effects', 
+        'sfx', 'reverb', 'delay', 'echo', 
+        'atmosphere', 'background noise',
+        'texture', 'textures'
+    ],
+    'Bass': [
+        'bass', 'bassline', 'sub bass'
+    ],
+    'Brass': [
+        'brass', 'trumpet', 'saxophone', 'trombone'
+    ],
+    'Guitar & Plucked': [
+        'guitar', 'pluck', 'plucked', 
+        'acoustic guitar', 'electric guitar', 
+        'harp', 'banjo', 'ukulele', 'mandolin',
+        'guitarloop', 'guitarloops'
+    ],
+    'Lead': [
+        'lead', 'lead synth', 'lead guitar', 
+        'melody'
+    ],
+    'Mallets': [
+        'mallet', 'mallets', 'xylophone', 
+        'marimba', 'vibraphone', 'glockenspiel'
+    ],
+    'Strings': [
+        'string', 'strings', 'violin', 'cello', 'orchestra'
+    ],
+    'Voice': [
+        'voice', 'vocals', 'vocal', 'singing', 'vox'
+    ],
+    'Woodwind': [
+        'woodwind', 'flute', 'sax', 'clarinet', 
+        'oboe', 'bassoon', 'horn'
+    ],
+    'Piano & Keys': [
+        'piano', 'keys', 'key', 'electric piano', 
+        'acoustic piano', 'grand piano', 'keyboard', 
+        'organ', 'rhodes', 'clav', 'clavinet', 
+        'harpsichord', 'electric clavinet'
+    ],
+    'Pad': [
+        'pad', 'pads', 'synth pad', 'ambient pad', 
+        'soft pad', 'lush pad', 'warm pad', 
+        'thick pad', 'bright pad', 'dark pad', 'stabs'
+    ],
     # Additional categories can be added here
 }
 
-# Extended class mappings
+# Updated LOOP_MAPPING with unique categories
 LOOP_MAPPING = {
     # Loops/Drums
-    'Full Drum Loop': 'Loops/Drums/Full Drum Loop',
-    'Hihat': 'Loops/Drums/Hihat',
-    'Percussion': 'Loops/Drums/Percussion',
+    'Full Drum Loops': 'Loops/Drums/Full Drum Loops',
+    'Hihat Loops': 'Loops/Drums/Hihat Loops',
+    'Percussion Loops': 'Loops/Drums/Percussion Loops',
 
     # Loops/Sounds
-    'Bass': 'Loops/Sounds/Bass',
-    'Chords': 'Loops/Sounds/Chords',
-    'Synth': 'Loops/Sounds/Synth',
-    'Voice': 'Loops/Sounds/Voice',
+    'Bass Loops': 'Loops/Sounds/Bass Loops',
+    'Chord Loops': 'Loops/Sounds/Chord Loops',
+    'Synth Loops': 'Loops/Sounds/Synth Loops',
+    'Voice Loops': 'Loops/Sounds/Voice Loops',
 }
 
+# Updated ONESHOT_MAPPING with 'Chords' included
 ONESHOT_MAPPING = {
     # Oneshots/Drums
     'Clap': 'Oneshots/Drums/Clap',
@@ -83,13 +186,15 @@ ONESHOT_MAPPING = {
     'Ambience & FX': 'Oneshots/Sounds/Ambience & FX',
     'Bass': 'Oneshots/Sounds/Bass',
     'Brass': 'Oneshots/Sounds/Brass',
-    'Chords': 'Oneshots/Sounds/Chords',
+    'Chords': 'Oneshots/Sounds/Chords',  # Added Chords to Oneshots
     'Guitar & Plucked': 'Oneshots/Sounds/Guitar & Plucked',
     'Lead': 'Oneshots/Sounds/Lead',
     'Mallets': 'Oneshots/Sounds/Mallets',
     'Strings': 'Oneshots/Sounds/Strings',
     'Voice': 'Oneshots/Sounds/Voice',
     'Woodwind': 'Oneshots/Sounds/Woodwind',
+    'Piano & Keys': 'Oneshots/Sounds/Piano & Keys',
+    'Pad': 'Oneshots/Sounds/Pad',
 }
 
 # Tonal categories for which key detection should be performed
@@ -104,10 +209,9 @@ TONAL_CATEGORIES = [
     'Mallets',
     'Strings',
     'Woodwind',
+    'Piano & Keys',
+    'Pad',
 ]
-
-# Combined list of all possible substrings for categorization
-ALL_SUBSTRINGS = list(set(list(LOOP_MAPPING.keys()) + list(ONESHOT_MAPPING.keys())))
 
 # Supported audio file extensions
 AUDIO_EXTENSIONS = ('.wav', '.mp3', '.aiff', '.flac', '.ogg', '.m4a')
@@ -121,18 +225,18 @@ def parse_arguments():
 
 def create_directory_structure(base_path):
     """
-    Creates the required directory structure.
+    Creates the required directory structure, including Unclassified/.
     """
     structure = [
         # Loops/Drums
-        'Loops/Drums/Full Drum Loop',
-        'Loops/Drums/Hihat',
-        'Loops/Drums/Percussion',
+        'Loops/Drums/Full Drum Loops',
+        'Loops/Drums/Hihat Loops',
+        'Loops/Drums/Percussion Loops',
         # Loops/Sounds
-        'Loops/Sounds/Bass',
-        'Loops/Sounds/Chords',
-        'Loops/Sounds/Synth',
-        'Loops/Sounds/Voice',
+        'Loops/Sounds/Bass Loops',
+        'Loops/Sounds/Chord Loops',
+        'Loops/Sounds/Synth Loops',
+        'Loops/Sounds/Voice Loops',
         # Oneshots/Drums
         'Oneshots/Drums/Clap',
         'Oneshots/Drums/Cymbal',
@@ -146,13 +250,17 @@ def create_directory_structure(base_path):
         'Oneshots/Sounds/Ambience & FX',
         'Oneshots/Sounds/Bass',
         'Oneshots/Sounds/Brass',
-        'Oneshots/Sounds/Chords',
+        'Oneshots/Sounds/Chords',  # Added Chords
         'Oneshots/Sounds/Guitar & Plucked',
         'Oneshots/Sounds/Lead',
         'Oneshots/Sounds/Mallets',
         'Oneshots/Sounds/Strings',
         'Oneshots/Sounds/Voice',
         'Oneshots/Sounds/Woodwind',
+        'Oneshots/Sounds/Piano & Keys',
+        'Oneshots/Sounds/Pad',
+        # Unclassified
+        'Unclassified'  # Added Unclassified directory
     ]
 
     for folder in structure:
@@ -181,6 +289,20 @@ def detect_key(file_path):
         # Extract the key, scale, and strength
         key, scale, strength = key_extractor(audio)
 
+        # Ensure key and scale are strings
+        if isinstance(key, np.ndarray):
+            key = key.item() if key.size == 1 else str(key)
+        else:
+            key = str(key)
+
+        if isinstance(scale, np.ndarray):
+            scale = scale.item() if scale.size == 1 else str(scale)
+        else:
+            scale = str(scale)
+
+        # Log the types for debugging
+        logging.info(f"Type of key: {type(key)}, Type of scale: {type(scale)}")
+
         # Check detection strength
         if strength < 0.1:
             logging.warning(f"Low confidence ({strength}) in key detection for '{file_path}'.")
@@ -194,29 +316,87 @@ def detect_key(file_path):
         logging.error(f"Error extracting key for '{file_path}': {e}")
         return 'Unknown'
 
-def is_loop(file_path, bpm_threshold=30, beats_per_bar=4, tolerance=0.05):
+def is_loop(file_path, filename, dir_names_combined, bpm_threshold=30, beats_per_bar=4, tolerance=0.05, transient_threshold=1, min_duration=2.0):
     """
-    Determines if a file is a loop based on BPM and duration.
+    Determines if a file is a loop based on BPM, duration, transients, and filename/folder substrings.
 
     Parameters:
     - file_path (str): Path to the audio file.
+    - filename (str): Name of the audio file.
+    - dir_names_combined (str): Combined directory names where the file is located.
     - bpm_threshold (float): Minimum BPM to consider as rhythmic.
     - beats_per_bar (int): Number of beats in a musical bar.
     - tolerance (float): Acceptable deviation when checking bar multiples.
+    - transient_threshold (int): Minimum number of transients to consider as a loop.
+    - min_duration (float): Minimum duration in seconds to consider as a loop.
 
     Returns:
     - bool: True if loop, False otherwise.
     - bpm (float): Estimated BPM of the loop.
     """
+    # Preprocess filename and directory names for substring matching
+    filename_lower = filename.lower()
+    dir_names_lower = dir_names_combined.lower()
+
+    # Check for substrings that indicate a loop
+    loop_indicators = ['loop', 'bpm']
+    if any(indicator in filename_lower for indicator in loop_indicators) or any(indicator in dir_names_lower for indicator in loop_indicators):
+        logging.info(f"File '{file_path}' identified as loop based on filename or directory containing 'loop' or 'bpm'.")
+        try:
+            # Load audio file
+            y, sr = librosa.load(file_path, sr=None, mono=True)
+            # Estimate the tempo (BPM)
+            tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+            
+            # Ensure tempo is a float
+            if isinstance(tempo, (np.ndarray, list)):
+                tempo = float(tempo[0]) if len(tempo) > 0 else 0.0
+            else:
+                tempo = float(tempo)
+
+            return True, tempo
+        except Exception as e:
+            logging.error(f"Error processing '{file_path}' during loop detection based on filename/folder: {e}")
+            return False, 0.0
+
+    # Proceed with audio-based loop detection
     try:
+        # Load audio file
         y, sr = librosa.load(file_path, sr=None, mono=True)
+        
+        # Normalize the audio
+        y = librosa.util.normalize(y)
+
+        # Estimate the tempo (BPM) and track beats
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        
+        # Ensure tempo is a float
+        if isinstance(tempo, (np.ndarray, list)):
+            tempo = float(tempo[0]) if len(tempo) > 0 else 0.0
+        else:
+            tempo = float(tempo)
+
         duration = librosa.get_duration(y=y, sr=sr)
 
+        # If the sample is too short, it's unlikely to be a loop
+        if duration < min_duration:
+            logging.info(f"File '{file_path}' is too short ({duration:.2f} seconds) to be a loop.")
+            return False, tempo
+        
+        # If the tempo is below the threshold, it's unlikely to be a rhythmic loop
         if tempo < bpm_threshold:
             logging.info(f"File '{file_path}' tempo {tempo} BPM below threshold {bpm_threshold} BPM.")
-            return False, float(tempo)  # Too slow to be considered rhythmic
+            return False, tempo
+        
+        # Detect transients (onset events)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        transients = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr)
 
+        # If there's only one transient, it's unlikely to be a loop
+        if len(transients) <= transient_threshold:
+            logging.info(f"File '{file_path}' has {len(transients)} transient(s), which is too few to be a loop.")
+            return False, tempo
+        
         # Calculate duration per beat and per bar
         beat_duration = 60.0 / tempo
         bar_duration = beats_per_bar * beat_duration
@@ -226,16 +406,16 @@ def is_loop(file_path, bpm_threshold=30, beats_per_bar=4, tolerance=0.05):
 
         # Check if num_bars is close to an integer power of 2 (1, 2, 4, 8, 16, ...)
         if num_bars < 0.5:
-            logging.info(f"File '{file_path}' has {num_bars} bars, which is too short to be a loop.")
-            return False, float(tempo)  # Too short to be a loop
+            logging.info(f"File '{file_path}' has {num_bars:.2f} bars, which is too short to be a loop.")
+            return False, tempo  # Too short to be a loop
 
         nearest_power = 2 ** round(math.log(num_bars, 2))
         if abs(num_bars - nearest_power) / nearest_power <= tolerance:
             logging.info(f"File '{file_path}' identified as loop with {tempo} BPM and approximately {nearest_power} bars.")
-            return True, float(tempo)
+            return True, tempo
         else:
-            logging.info(f"File '{file_path}' not a loop. BPM: {tempo}, Bars: {num_bars}, Nearest Power: {nearest_power}.")
-            return False, float(tempo)
+            logging.info(f"File '{file_path}' not a loop. BPM: {tempo}, Bars: {num_bars:.2f}, Nearest Power: {nearest_power}.")
+            return False, tempo
     except Exception as e:
         logging.error(f"Error processing '{file_path}': {e}")
         return False, 0.0
@@ -289,6 +469,11 @@ def organize_samples(input_folder, output_folder):
     # Create directory structure
     create_directory_structure(output_folder)
 
+    # Define Unclassified directory path
+    unclassified_dir = os.path.join(output_folder, 'Unclassified')
+    os.makedirs(unclassified_dir, exist_ok=True)  # Ensure Unclassified directory exists
+    logging.info(f"Ensured Unclassified directory exists: {unclassified_dir}")
+
     # Gather all audio files
     audio_files = []
     for root, dirs, files in os.walk(input_folder):
@@ -301,7 +486,13 @@ def organize_samples(input_folder, output_folder):
 
     # Process files with progress bar
     for file_path in tqdm(audio_files, desc="Organizing Samples", unit="file"):
-        loop_flag, bpm = is_loop(file_path)
+        filename = os.path.basename(file_path)
+        name, ext = os.path.splitext(filename)
+        dir_names_combined = ' '.join(os.path.dirname(file_path).split(os.sep))
+
+        # Determine if the file is a loop based on audio analysis and filename/folder substrings
+        loop_flag, bpm = is_loop(file_path, filename, dir_names_combined)
+
         category_path = categorize_file(file_path, loop_flag)
 
         if category_path:
@@ -341,8 +532,14 @@ def organize_samples(input_folder, output_folder):
             except Exception as e:
                 logging.error(f"Failed to copy '{file_path}': {e}")
         else:
-            # File does not have a matching substring; skip copying or handle accordingly
-            logging.warning(f"No matching category found for '{file_path}'. Skipping.")
+            # File does not have a matching substring; copy to Unclassified and log
+            try:
+                destination_path = os.path.join(unclassified_dir, os.path.basename(file_path))
+                shutil.copy2(file_path, destination_path)
+                logging.info(f"Copied '{file_path}' to 'Unclassified/' as '{os.path.basename(file_path)}'.")
+                skipped_logger.warning(f"No matching category found for '{file_path}'. Copied to Unclassified.")
+            except Exception as e:
+                logging.error(f"Failed to copy '{file_path}' to Unclassified: {e}")
             continue
 
 def main():
