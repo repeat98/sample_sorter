@@ -17,22 +17,29 @@ import hashlib
 
 # --------------------------- Parameters ---------------------------
 
-DATASET_PATH = "train/"  # Update this path as needed
+DATASET_PATH = "train_sm/"  # Update this path as needed
 SAMPLE_RATE = 22050  # Sampling rate for audio
 DURATION = 5  # Duration to which all audio files will be truncated or padded
 SAMPLES_PER_TRACK = SAMPLE_RATE * DURATION
 
-# Mel-spectrogram parameters
+# Audio feature extraction parameters
 N_MELS = 128
 HOP_LENGTH = 512
 N_FFT = 2048
-N_MFCC = 20  # Increased from 13 to 20
+N_MFCC = 40  # Increased from 20 to capture more detailed features
+N_CHROMA = 12  # Number of chroma features
+N_SPECTRAL_CONTRAST = 5  # Reduced from 7 to prevent frequency band issues
+N_ZERO_CROSSING = 1  # Zero Crossing Rate
+N_SPECTRAL_CENTROID = 1  # Spectral Centroid
+N_SPECTRAL_BANDWIDTH = 1  # Spectral Bandwidth
+N_SPECTRAL_ROLLOFF = 1  # Spectral Rolloff
+N_TONNETTE = 6  # Tonnetz features (librosa's tonnetz returns 6 features)
 
 # Model parameters
-BATCH_SIZE = 16
-EPOCHS = 50  # Increased from 30 to allow more training
+BATCH_SIZE = 32  # Increased batch size for faster convergence
+EPOCHS = 30  # Set back to 30 epochs
 VALIDATION_SPLIT = 0.2
-MIN_SAMPLES_PER_CLASS = 10  # Increased from 5 to filter out very few samples
+MIN_SAMPLES_PER_CLASS = 10  # Ensures a reasonable number of samples per class
 
 # Supported audio file extensions
 AUDIO_EXTENSIONS = (
@@ -50,9 +57,13 @@ FINGERPRINT_PATH = "model/fingerprint.pkl"
 FEATURES_PATH = "model/X_features.npy"
 LABELS_PATH = "model/y_filtered.npy"
 LABEL_ENCODER_PATH = "model/label_encoder.pkl"
+CLASSES_TO_KEEP_PATH = "model/classes_to_keep.pkl"
 
 def compute_fingerprint(dataset_path, audio_extensions, sample_rate, duration,
-                       min_samples_per_class, n_mels, hop_length, n_fft, n_mfcc):
+                       min_samples_per_class, n_mels, hop_length, n_fft, n_mfcc,
+                       n_chroma, n_spectral_contrast, n_zero_crossing,
+                       n_spectral_centroid, n_spectral_bandwidth,
+                       n_spectral_rolloff, n_tonnette):
     """
     Compute a fingerprint of the dataset based on file paths, modification times, and processing parameters.
     """
@@ -65,7 +76,14 @@ def compute_fingerprint(dataset_path, audio_extensions, sample_rate, duration,
             'n_mels': n_mels,
             'hop_length': hop_length,
             'n_fft': n_fft,
-            'n_mfcc': n_mfcc
+            'n_mfcc': n_mfcc,
+            'n_chroma': n_chroma,
+            'n_spectral_contrast': n_spectral_contrast,
+            'n_zero_crossing': n_zero_crossing,
+            'n_spectral_centroid': n_spectral_centroid,
+            'n_spectral_bandwidth': n_spectral_bandwidth,
+            'n_spectral_rolloff': n_spectral_rolloff,
+            'n_tonnette': n_tonnette
         }
     }
 
@@ -99,7 +117,7 @@ def load_cached_data():
     with open(LABEL_ENCODER_PATH, "rb") as le_file:
         le = pickle.load(le_file)
     # Load the cached classes_to_keep
-    with open("model/classes_to_keep.pkl", "rb") as ck_file:
+    with open(CLASSES_TO_KEEP_PATH, "rb") as ck_file:
         classes_to_keep = pickle.load(ck_file)
     return X_features, y_filtered, le, classes_to_keep
 
@@ -114,7 +132,7 @@ def save_cached_data(X_features, y_filtered, le, fingerprint_hash, classes_to_ke
     with open(FINGERPRINT_PATH, "wb") as fp_file:
         pickle.dump(fingerprint_hash, fp_file)
     # Save classes_to_keep
-    with open("model/classes_to_keep.pkl", "wb") as ck_file:
+    with open(CLASSES_TO_KEEP_PATH, "wb") as ck_file:
         pickle.dump(classes_to_keep, ck_file)
 
 def load_audio_files(dataset_path, sample_rate, duration, audio_extensions):
@@ -140,7 +158,8 @@ def load_audio_files(dataset_path, sample_rate, duration, audio_extensions):
 
         # Load audio file
         try:
-            signal, sr = librosa.load(file_path, sr=sample_rate)
+            # Specify dtype to handle FutureWarning
+            signal, sr = librosa.load(file_path, sr=sample_rate, dtype=np.float32)
             if len(signal) > max_len:
                 signal = signal[:max_len]
             else:
@@ -156,7 +175,9 @@ def load_audio_files(dataset_path, sample_rate, duration, audio_extensions):
     print(f"Loaded {success_count} samples successfully.")
     return np.array(X), np.array(labels)
 
-def extract_features(X, sample_rate, n_mels, hop_length, n_fft, n_mfcc=20):
+def extract_features(X, sample_rate, n_mels, hop_length, n_fft, n_mfcc=40, n_chroma=12, n_spectral_contrast=5,
+                    n_zero_crossing=1, n_spectral_centroid=1, n_spectral_bandwidth=1,
+                    n_spectral_rolloff=1, n_tonnette=6):
     mfccs = []
     for x in tqdm(X, desc="Extracting features"):
         try:
@@ -169,14 +190,65 @@ def extract_features(X, sample_rate, n_mels, hop_length, n_fft, n_mfcc=20):
             delta_mfcc = librosa.feature.delta(mfcc)
             delta2_mfcc = librosa.feature.delta(mfcc, order=2)
 
-            # Stack MFCC and Delta MFCCs
-            combined = np.vstack((mfcc, delta_mfcc, delta2_mfcc))
+            # Compute Chroma Features
+            chroma = librosa.feature.chroma_stft(y=x, sr=sample_rate, hop_length=hop_length, n_fft=n_fft, n_chroma=n_chroma)
+
+            # Compute Spectral Contrast
+            spectral_contrast = librosa.feature.spectral_contrast(y=x, sr=sample_rate, hop_length=hop_length, n_fft=n_fft, n_bands=n_spectral_contrast)
+
+            # Compute Zero Crossing Rate
+            zero_crossing_rate = librosa.feature.zero_crossing_rate(y=x, hop_length=hop_length)
+            zero_crossing_rate = np.repeat(zero_crossing_rate, n_zero_crossing, axis=0)
+
+            # Compute Spectral Centroid
+            spectral_centroid = librosa.feature.spectral_centroid(y=x, sr=sample_rate, hop_length=hop_length)
+            spectral_centroid = np.repeat(spectral_centroid, n_spectral_centroid, axis=0)
+
+            # Compute Spectral Bandwidth
+            spectral_bandwidth = librosa.feature.spectral_bandwidth(y=x, sr=sample_rate, hop_length=hop_length)
+            spectral_bandwidth = np.repeat(spectral_bandwidth, n_spectral_bandwidth, axis=0)
+
+            # Compute Spectral Rolloff
+            spectral_rolloff = librosa.feature.spectral_rolloff(y=x, sr=sample_rate, hop_length=hop_length)
+            spectral_rolloff = np.repeat(spectral_rolloff, n_spectral_rolloff, axis=0)
+
+            # Compute Tonnetz Features
+            tonnetz = librosa.feature.tonnetz(y=librosa.effects.harmonic(x), sr=sample_rate)
+            # Ensure tonnetz has the correct number of features
+            if tonnetz.shape[0] < n_tonnette:
+                tonnetz = np.pad(tonnetz, ((0, n_tonnette - tonnetz.shape[0]), (0,0)), 'constant')
+            else:
+                tonnetz = tonnetz[:n_tonnette, :]
+
+            # Stack all features
+            combined = np.vstack((
+                mfcc, 
+                delta_mfcc, 
+                delta2_mfcc, 
+                chroma, 
+                spectral_contrast,
+                zero_crossing_rate,
+                spectral_centroid,
+                spectral_bandwidth,
+                spectral_rolloff,
+                tonnetz
+            ))
 
             mfccs.append(combined)
         except Exception as e:
             print(f"Error extracting features: {e}")
             # Placeholder for failed extraction
-            combined_shape = (n_mfcc * 3, int(np.ceil(len(x)/hop_length)))
+            combined_shape = (
+                n_mfcc * 3 + 
+                n_chroma + 
+                n_spectral_contrast + 
+                n_zero_crossing + 
+                n_spectral_centroid + 
+                n_spectral_bandwidth + 
+                n_spectral_rolloff + 
+                n_tonnette, 
+                int(np.ceil(len(x)/hop_length))
+            )
             mfccs.append(np.zeros(combined_shape, dtype=np.float32))
     return np.array(mfccs)
 
@@ -193,14 +265,23 @@ def main():
         N_MELS,
         HOP_LENGTH,
         N_FFT,
-        N_MFCC
+        N_MFCC,
+        N_CHROMA,
+        N_SPECTRAL_CONTRAST,
+        N_ZERO_CROSSING,
+        N_SPECTRAL_CENTROID,
+        N_SPECTRAL_BANDWIDTH,
+        N_SPECTRAL_ROLLOFF,
+        N_TONNETTE
     )
 
-    cache_exists = os.path.exists(FINGERPRINT_PATH) and \
-                   os.path.exists(FEATURES_PATH) and \
-                   os.path.exists(LABELS_PATH) and \
-                   os.path.exists(LABEL_ENCODER_PATH) and \
-                   os.path.exists("model/classes_to_keep.pkl")  # Check for cached classes_to_keep
+    cache_exists = all([
+        os.path.exists(FINGERPRINT_PATH),
+        os.path.exists(FEATURES_PATH),
+        os.path.exists(LABELS_PATH),
+        os.path.exists(LABEL_ENCODER_PATH),
+        os.path.exists(CLASSES_TO_KEEP_PATH)
+    ])
 
     if cache_exists:
         print("Loading cached fingerprint...")
@@ -260,16 +341,55 @@ def main():
 
             # -------------------- Feature Extraction --------------------
             print("\nExtracting features...")
-            X_features = extract_features(X_filtered, SAMPLE_RATE, N_MELS, HOP_LENGTH, N_FFT, N_MFCC)
+            X_features = extract_features(
+                X_filtered, 
+                SAMPLE_RATE, 
+                N_MELS, 
+                HOP_LENGTH, 
+                N_FFT, 
+                N_MFCC, 
+                N_CHROMA, 
+                N_SPECTRAL_CONTRAST,
+                N_ZERO_CROSSING,
+                N_SPECTRAL_CENTROID,
+                N_SPECTRAL_BANDWIDTH,
+                N_SPECTRAL_ROLLOFF,
+                N_TONNETTE
+            )
             # Ensure all feature arrays have the same shape
             max_time = X_features.shape[2]
-            if max_time < 216:
-                pad_width = 216 - max_time
+            target_time = 216  # Adjusted target time based on model input requirements
+
+            if max_time < target_time:
+                pad_width = target_time - max_time
                 X_features = np.pad(X_features, ((0,0), (0,0), (0, pad_width), (0,0)), 'constant')
-            elif max_time > 216:
-                X_features = X_features[:, :, :216, :]
-            X_features = X_features[..., np.newaxis]  # Add channel dimension
-            print(f"Feature shape: {X_features.shape}")
+            elif max_time > target_time:
+                X_features = X_features[:, :, :target_time, :]
+            print(f"Feature shape before normalization: {X_features.shape}")
+
+            # -------------------- Feature Normalization --------------------
+            print("\nNormalizing features...")
+            # Compute mean and std from the training data after splitting
+            # Split first to prevent data leakage
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_features, y_filtered, test_size=VALIDATION_SPLIT, random_state=42, stratify=y_filtered
+            )
+            print(f"Training samples: {X_train.shape[0]}, Validation samples: {X_val.shape[0]}")
+
+            # Compute mean and std for normalization based on training data
+            X_train_mean = X_train.mean(axis=(0, 2), keepdims=True)
+            X_train_std = X_train.std(axis=(0, 2), keepdims=True) + 1e-8  # To avoid division by zero
+
+            # Normalize training and validation data
+            X_train = (X_train - X_train_mean) / X_train_std
+            X_val = (X_val - X_train_mean) / X_train_std
+            print("Features normalized.")
+
+            # Reshape for the model
+            # Assuming the last dimension is the channel
+            # If not, adjust accordingly
+            # X_train = X_train[..., np.newaxis]
+            # X_val = X_val[..., np.newaxis]
 
             # Save cached data
             print("\nSaving extracted features and labels to cache...")
@@ -326,70 +446,120 @@ def main():
 
         # -------------------- Feature Extraction --------------------
         print("\nExtracting features...")
-        X_features = extract_features(X_filtered, SAMPLE_RATE, N_MELS, HOP_LENGTH, N_FFT, N_MFCC)
+        X_features = extract_features(
+            X_filtered, 
+            SAMPLE_RATE, 
+            N_MELS, 
+            HOP_LENGTH, 
+            N_FFT, 
+            N_MFCC, 
+            N_CHROMA, 
+            N_SPECTRAL_CONTRAST,
+            N_ZERO_CROSSING,
+            N_SPECTRAL_CENTROID,
+            N_SPECTRAL_BANDWIDTH,
+            N_SPECTRAL_ROLLOFF,
+            N_TONNETTE
+        )
         # Ensure all feature arrays have the same shape
         max_time = X_features.shape[2]
-        if max_time < 216:
-            pad_width = 216 - max_time
-            X_features = np.pad(X_features, ((0,0), (0,0), (0, pad_width), (0,0)), 'constant')
-        elif max_time > 216:
-            X_features = X_features[:, :, :216, :]
-        X_features = X_features[..., np.newaxis]  # Add channel dimension
-        print(f"Feature shape: {X_features.shape}")
+        target_time = 216  # Adjusted target time based on model input requirements
 
-        # Save cached data
+        if max_time < target_time:
+            pad_width = target_time - max_time
+            X_features = np.pad(X_features, ((0,0), (0,0), (0, pad_width), (0,0)), 'constant')
+        elif max_time > target_time:
+            X_features = X_features[:, :, :target_time, :]
+        print(f"Feature shape before normalization: {X_features.shape}")
+
+        # -------------------- Feature Normalization --------------------
+        print("\nNormalizing features...")
+        # Split data first to prevent data leakage
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_features, y_filtered, test_size=VALIDATION_SPLIT, random_state=42, stratify=y_filtered
+        )
+        print(f"Training samples: {X_train.shape[0]}, Validation samples: {X_val.shape[0]}")
+
+        # Compute mean and std for normalization based on training data
+        X_train_mean = X_train.mean(axis=(0, 2), keepdims=True)
+        X_train_std = X_train.std(axis=(0, 2), keepdims=True) + 1e-8  # To avoid division by zero
+
+        # Normalize training and validation data
+        X_train = (X_train - X_train_mean) / X_train_std
+        X_val = (X_val - X_train_mean) / X_train_std
+        print("Features normalized.")
+
+        # Reshape for the model
+        # Assuming the last dimension is the channel
+        # If not, adjust accordingly
+        # X_train = X_train[..., np.newaxis]
+        # X_val = X_val[..., np.newaxis]
+
+        # -------------------- Save Cached Data --------------------
         print("\nSaving extracted features and labels to cache...")
         save_cached_data(X_features, y_filtered, le, current_fingerprint, classes_to_keep)
         print("Cached data saved successfully.")
 
-    # -------------------- Train-Test Split --------------------
-    print("\nSplitting data into train and validation sets...")
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_features, y_filtered, test_size=VALIDATION_SPLIT, random_state=42, stratify=y_filtered
-    )
-    y_train_categorical = to_categorical(y_train)
-    y_val_categorical = to_categorical(y_val)
-    print(f"Training samples: {X_train.shape[0]}, Validation samples: {X_val.shape[0]}")
+    # -------------------- Continue Main Flow --------------------
+
+    # If cache was loaded, and data was already split and normalized
+    if cache_exists and current_fingerprint == saved_fingerprint:
+        print("\nSplitting data into train and validation sets...")
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_features, y_filtered, test_size=VALIDATION_SPLIT, random_state=42, stratify=y_filtered
+        )
+        print(f"Training samples: {X_train.shape[0]}, Validation samples: {X_val.shape[0]}")
+
+        # -------------------- Feature Normalization --------------------
+        print("\nNormalizing features...")
+        # Compute mean and std from the training data
+        X_train_mean = X_train.mean(axis=(0, 2), keepdims=True)
+        X_train_std = X_train.std(axis=(0, 2), keepdims=True) + 1e-8  # To avoid division by zero
+
+        # Normalize training and validation data
+        X_train = (X_train - X_train_mean) / X_train_std
+        X_val = (X_val - X_train_mean) / X_train_std
+        print("Features normalized.")
 
     # -------------------- Model Building --------------------
     def build_model(input_shape, num_classes):
         model = models.Sequential()
 
         # First Convolutional Block
-        model.add(layers.Conv2D(32, (3,3), activation='relu', padding='same', input_shape=input_shape,
-                                kernel_regularizer=regularizers.l2(0.001)))
+        model.add(layers.Conv2D(64, (3,3), activation='relu', padding='same', input_shape=input_shape,
+                                kernel_regularizer=regularizers.l2(0.0005)))
         model.add(layers.BatchNormalization())
         model.add(layers.MaxPooling2D((2,2)))
         model.add(layers.Dropout(0.3))
 
         # Second Convolutional Block
-        model.add(layers.Conv2D(64, (3,3), activation='relu', padding='same',
-                                kernel_regularizer=regularizers.l2(0.001)))
-        model.add(layers.BatchNormalization())
-        model.add(layers.MaxPooling2D((2,2)))
-        model.add(layers.Dropout(0.3))
-
-        # Third Convolutional Block
         model.add(layers.Conv2D(128, (3,3), activation='relu', padding='same',
-                                kernel_regularizer=regularizers.l2(0.001)))
+                                kernel_regularizer=regularizers.l2(0.0005)))
         model.add(layers.BatchNormalization())
         model.add(layers.MaxPooling2D((2,2)))
         model.add(layers.Dropout(0.3))
 
-        # Fourth Convolutional Block
+        # Third Convolutional Block with increased filters
         model.add(layers.Conv2D(256, (3,3), activation='relu', padding='same',
-                                kernel_regularizer=regularizers.l2(0.001)))
+                                kernel_regularizer=regularizers.l2(0.0005)))
         model.add(layers.BatchNormalization())
         model.add(layers.MaxPooling2D((2,2)))
-        model.add(layers.Dropout(0.3))
+        model.add(layers.Dropout(0.4))
+
+        # Fourth Convolutional Block with deeper architecture
+        model.add(layers.Conv2D(512, (3,3), activation='relu', padding='same',
+                                kernel_regularizer=regularizers.l2(0.0005)))
+        model.add(layers.BatchNormalization())
+        model.add(layers.MaxPooling2D((2,2)))
+        model.add(layers.Dropout(0.4))
 
         # Global Average Pooling
         model.add(layers.GlobalAveragePooling2D())
 
-        # Dense Layers
-        model.add(layers.Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.001)))
+        # Dense Layers with increased units and Dropout
+        model.add(layers.Dense(512, activation='relu', kernel_regularizer=regularizers.l2(0.0005)))
         model.add(layers.BatchNormalization())
-        model.add(layers.Dropout(0.4))
+        model.add(layers.Dropout(0.5))
 
         model.add(layers.Dense(num_classes, activation='softmax'))
 

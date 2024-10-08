@@ -11,3 +11,4 @@ organize_samples.log
 model/X_features.npy
 model/y_filtered.npy
 skipped_files.log
+train_sm/
