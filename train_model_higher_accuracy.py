@@ -17,7 +17,7 @@ import hashlib
 
 # --------------------------- Parameters ---------------------------
 
-DATASET_PATH = "/Users/jannikassfalg/coding/sample_sorter/train"  # Update this path as needed
+DATASET_PATH = "train/"  # Update this path as needed
 SAMPLE_RATE = 22050  # Sampling rate for audio
 DURATION = 5  # Duration to which all audio files will be truncated or padded
 SAMPLES_PER_TRACK = SAMPLE_RATE * DURATION
@@ -29,7 +29,7 @@ N_FFT = 2048
 N_MFCC = 20  # Increased from 13 to 20
 
 # Model parameters
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 EPOCHS = 50  # Increased from 30 to allow more training
 VALIDATION_SPLIT = 0.2
 MIN_SAMPLES_PER_CLASS = 10  # Increased from 5 to filter out very few samples
@@ -92,17 +92,20 @@ def compute_fingerprint(dataset_path, audio_extensions, sample_rate, duration,
 
 def load_cached_data():
     """
-    Load cached features, labels, and label encoder.
+    Load cached features, labels, label encoder, and classes_to_keep.
     """
     X_features = np.load(FEATURES_PATH)
     y_filtered = np.load(LABELS_PATH)
     with open(LABEL_ENCODER_PATH, "rb") as le_file:
         le = pickle.load(le_file)
-    return X_features, y_filtered, le
+    # Load the cached classes_to_keep
+    with open("model/classes_to_keep.pkl", "rb") as ck_file:
+        classes_to_keep = pickle.load(ck_file)
+    return X_features, y_filtered, le, classes_to_keep
 
-def save_cached_data(X_features, y_filtered, le, fingerprint_hash):
+def save_cached_data(X_features, y_filtered, le, fingerprint_hash, classes_to_keep):
     """
-    Save features, labels, label encoder, and fingerprint hash to cache.
+    Save features, labels, label encoder, fingerprint hash, and classes_to_keep to cache.
     """
     np.save(FEATURES_PATH, X_features)
     np.save(LABELS_PATH, y_filtered)
@@ -110,8 +113,9 @@ def save_cached_data(X_features, y_filtered, le, fingerprint_hash):
         pickle.dump(le, le_file)
     with open(FINGERPRINT_PATH, "wb") as fp_file:
         pickle.dump(fingerprint_hash, fp_file)
-
-# ----------------------- Data Loading and Caching -----------------------
+    # Save classes_to_keep
+    with open("model/classes_to_keep.pkl", "wb") as ck_file:
+        pickle.dump(classes_to_keep, ck_file)
 
 def load_audio_files(dataset_path, sample_rate, duration, audio_extensions):
     X = []
@@ -195,7 +199,8 @@ def main():
     cache_exists = os.path.exists(FINGERPRINT_PATH) and \
                    os.path.exists(FEATURES_PATH) and \
                    os.path.exists(LABELS_PATH) and \
-                   os.path.exists(LABEL_ENCODER_PATH)
+                   os.path.exists(LABEL_ENCODER_PATH) and \
+                   os.path.exists("model/classes_to_keep.pkl")  # Check for cached classes_to_keep
 
     if cache_exists:
         print("Loading cached fingerprint...")
@@ -204,7 +209,7 @@ def main():
 
         if current_fingerprint == saved_fingerprint:
             print("Fingerprint matches. Loading cached features and labels...")
-            X_features, y_filtered, le = load_cached_data()
+            X_features, y_filtered, le, classes_to_keep = load_cached_data()
         else:
             print("Fingerprint does not match. Processing dataset...")
             X, labels = load_audio_files(DATASET_PATH, SAMPLE_RATE, DURATION, AUDIO_EXTENSIONS)
@@ -268,7 +273,7 @@ def main():
 
             # Save cached data
             print("\nSaving extracted features and labels to cache...")
-            save_cached_data(X_features, y_filtered, le, current_fingerprint)
+            save_cached_data(X_features, y_filtered, le, current_fingerprint, classes_to_keep)
             print("Cached data saved successfully.")
 
     else:
@@ -334,7 +339,7 @@ def main():
 
         # Save cached data
         print("\nSaving extracted features and labels to cache...")
-        save_cached_data(X_features, y_filtered, le, current_fingerprint)
+        save_cached_data(X_features, y_filtered, le, current_fingerprint, classes_to_keep)
         print("Cached data saved successfully.")
 
     # -------------------- Train-Test Split --------------------
@@ -391,7 +396,7 @@ def main():
         return model
 
     input_shape = X_train.shape[1:]
-    num_classes_filtered = len(classes_to_keep)
+    num_classes_filtered = len(classes_to_keep)  # Use classes_to_keep here
     model = build_model(input_shape, num_classes_filtered)
     model.summary()
 
