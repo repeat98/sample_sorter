@@ -65,61 +65,22 @@ def is_loop(y, sr, buffer_ms=50, hop_length=512):
 
     has_repetition = len(autocorr_peaks) > 1
 
-    # **Periodicity Detection**
-    # Define a sample as highly periodic if it has more than 3 significant autocorrelation peaks
-    is_highly_periodic = len(autocorr_peaks) > 3
+    # 5. Envelope Shape / Transient Peaks
+    transients_detected = detect_transients(y, sr, buffer_ms=buffer_ms, hop_length=hop_length)
+    transient_count = len(transients_detected)
 
-    if is_highly_periodic:
-        # Highly periodic sample; skip transient detection
-        transients_detected = []
-        transient_count = 0
-        is_periodic = True  # Since it's highly periodic
-        is_peaky = False  # Not considering transient peaks
-    else:
-        # Perform transient detection for non-highly periodic samples
-        transients_detected = detect_transients(y, sr, buffer_ms=buffer_ms, hop_length=hop_length)
-        transient_count = len(transients_detected)
+    # Analyze transient periodicity
+    is_periodic = analyze_transient_periodicity(transients_detected)
 
-       
-
-        # Analyze transient periodicity
-        is_periodic = analyze_transient_periodicity(transients_detected)
-
-        # Loops typically have more transients
-        is_peaky = transient_count > 2
+    # Loops typically have more transients
+    is_peaky = transient_count > 2
 
     # 6. Root Mean Square (RMS) Amplitude
     rms = librosa.feature.rms(y=y)
     rms_mean = np.mean(rms)
 
-    # **Classification Logic**
-
-     # **Added Logic: If no transients are detected, classify as One-Shot instantly**
-    if transient_count == 0:
-        return False, transient_count, duration, transients_detected, autocorr_peaks, {
-            'zcr_mean': zcr_mean,
-            'spectral_flatness_mean': spectral_flatness_mean,
-            'rms_mean': np.mean(librosa.feature.rms(y=y))
-        }
-    # **Highly Periodic Samples**
-    if is_highly_periodic:
-        if is_long_loop(duration) and \
-           spectral_flatness_mean < 0.2 and \
-           zcr_mean < 0.08 and \
-           rms_mean > 0.03:
-            return True, transient_count, duration, transients_detected, autocorr_peaks, {
-                'zcr_mean': zcr_mean,
-                'spectral_flatness_mean': spectral_flatness_mean,
-                'rms_mean': rms_mean
-            }
-        else:
-            return False, transient_count, duration, transients_detected, autocorr_peaks, {
-                'zcr_mean': zcr_mean,
-                'spectral_flatness_mean': spectral_flatness_mean,
-                'rms_mean': rms_mean
-            }
-
-    # **Non-Highly Periodic Samples**
+    # **Transient Count Rule**
+    # Samples with less than 3 transients are always One-Shots
     if transient_count < 6:
         return False, transient_count, duration, transients_detected, autocorr_peaks, {
             'zcr_mean': zcr_mean,
@@ -127,7 +88,9 @@ def is_loop(y, sr, buffer_ms=50, hop_length=512):
             'rms_mean': rms_mean
         }
 
-    # **Loop Classification for Non-Highly Periodic Samples**
+    # Classification Logic
+
+    # **Loop Classification**
     if is_long_loop(duration) and (has_repetition or is_periodic) and \
        spectral_flatness_mean < 0.2 and zcr_mean < 0.08 and rms_mean > 0.03 and is_peaky:
         return True, transient_count, duration, transients_detected, autocorr_peaks, {
@@ -180,7 +143,7 @@ def is_loop(y, sr, buffer_ms=50, hop_length=512):
         'rms_mean': rms_mean
     }
 
-def is_long_loop(duration, threshold=1.7):
+def is_long_loop(duration, threshold=2.0):
     """
     Determine if the duration qualifies as a long loop.
     """
@@ -201,7 +164,7 @@ def analyze_transient_periodicity(transient_times, threshold=0.2):
     # If the standard deviation is small relative to the mean, intervals are consistent
     return (std_interval / mean_interval) < threshold
 
-def plot_visualization(file_path, y, sr, y_normalized, transients, autocorr, autocorr_peaks, classification, output_dir, input_folder, is_highly_periodic):
+def plot_visualization(file_path, y, sr, y_normalized, transients, autocorr, autocorr_peaks, classification, output_dir, input_folder):
     """
     Generate and save visualization plots for the audio file.
     """
@@ -220,9 +183,8 @@ def plot_visualization(file_path, y, sr, y_normalized, transients, autocorr, aut
     # 2. Transient Detection
     plt.subplot(3, 1, 2)
     plt.plot(time, y_normalized, label='Normalized Waveform')
-    if not is_highly_periodic:
-        plt.vlines(transients, ymin=min(y_normalized), ymax=max(y_normalized), color='r', alpha=0.8, label='Transients')
-    plt.title('Transient Detection' + (" (Skipped for Highly Periodic)" if is_highly_periodic else ""))
+    plt.vlines(transients, ymin=min(y_normalized), ymax=max(y_normalized), color='r', alpha=0.8, label='Transients')
+    plt.title('Transient Detection')
     plt.xlabel('Time (s)')
     plt.ylabel('Amplitude')
     plt.legend()
@@ -267,13 +229,13 @@ def process_audio_file(file_path, logger, buffer_ms=50, hop_length=512):
         y_normalized = normalize_audio(y)
 
         # Classify
-        classification, transient_count, duration, transients_detected, autocorr_peaks, features = is_loop(
+        is_loop_flag, transient_count, duration, transients_detected, autocorr_peaks, features = is_loop(
             y_normalized, sr, buffer_ms=buffer_ms, hop_length=hop_length
         )
 
-        classification_text = "Loop" if classification else "One-Shot"
+        classification = "Loop" if is_loop_flag else "One-Shot"
         logger.info(
-            f"{file_path} | Classification: {classification_text} | Transients: {transient_count} | "
+            f"{file_path} | Classification: {classification} | Transients: {transient_count} | "
             f"Duration: {duration:.2f}s | ZCR: {features['zcr_mean']:.6f} | "
             f"Spectral Flatness: {features['spectral_flatness_mean']:.6f} | RMS: {features['rms_mean']:.6f}"
         )
@@ -285,13 +247,10 @@ def process_audio_file(file_path, logger, buffer_ms=50, hop_length=512):
         peak_height = np.max(autocorr) * 0.3
         autocorr_peaks_plot, _ = find_peaks(autocorr, height=peak_height)
 
-        # Determine if the sample is highly periodic based on autocorrelation peaks
-        is_highly_periodic = len(autocorr_peaks_plot) > 3
-
-        return classification, features, transient_count, y, sr, y_normalized, transients_detected, autocorr, autocorr_peaks_plot, is_highly_periodic
+        return is_loop_flag, features, transient_count, y, sr, y_normalized, transients_detected, autocorr, autocorr_peaks_plot
     except Exception as e:
         logger.error(f"Error processing {file_path}: {e}")
-        return None, None, None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, None
 
 def setup_logging(output_file):
     """
@@ -387,7 +346,7 @@ def main():
 
     # Process files with a progress bar
     for file_path in tqdm(audio_files, desc="Processing Audio Files", unit="file"):
-        classification, features, transient_count, y, sr, y_normalized, transients_detected, autocorr, autocorr_peaks, is_highly_periodic = process_audio_file(
+        classification, features, transient_count, y, sr, y_normalized, transients_detected, autocorr, autocorr_peaks = process_audio_file(
             file_path=file_path,
             logger=logger,
             buffer_ms=args.buffer_ms,
@@ -430,8 +389,7 @@ def main():
                     autocorr_peaks=autocorr_peaks,
                     classification=classification,
                     output_dir=args.plot_dir,
-                    input_folder=plot_visualization_base_input,
-                    is_highly_periodic=is_highly_periodic
+                    input_folder=plot_visualization_base_input
                 )
         else:
             unknown_label_count +=1
