@@ -3,8 +3,8 @@ import shutil
 
 # Configuration
 SOURCE_DIR = 'train/'    # Replace with the path to your original dataset
-DEST_DIR = 'train_sm/'      # Replace with the path to your pruned dataset
-MAX_FILES = 100
+DEST_DIR = 'train_sm2/'      # Replace with the path to your pruned dataset
+MAX_FILES = 10
 
 def is_leaf_directory(dir_path):
     """

@@ -10,5 +10,8 @@ organize_samples.log
 organize_samples.log
 model/X_features.npy
 model/y_filtered.npy
+model/best_model.keras
 skipped_files.log
 train_sm/
+__pycache__/
+train_sm2/
