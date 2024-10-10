@@ -7,7 +7,7 @@ from scipy.signal import find_peaks, correlate
 import logging
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import shutil  # Added for copying mismatched files
+import shutil  # For copying mismatched files
 
 def normalize_audio(y):
     """
@@ -48,9 +48,6 @@ def is_loop(y, sr, buffer_ms=50, hop_length=512):
     # 1. Duration Analysis
     duration = librosa.get_duration(y=y, sr=sr)
 
-    # Assuming loops are longer than 2 seconds
-    is_long = duration > 2.0
-
     # 2. Zero-Crossing Rate
     zcr = librosa.feature.zero_crossing_rate(y)
     zcr_mean = np.mean(zcr)
@@ -83,27 +80,76 @@ def is_loop(y, sr, buffer_ms=50, hop_length=512):
     rms = librosa.feature.rms(y=y)
     rms_mean = np.mean(rms)
 
-    # Classification Logic
-    if is_long and (has_repetition or is_periodic) and spectral_flatness_mean < 0.5 and zcr_mean < 0.1 and is_peaky:
-        return True, transient_count, duration, transients_detected, autocorr_peaks, {
-            'zcr_mean': zcr_mean,
-            'spectral_flatness_mean': spectral_flatness_mean,
-            'rms_mean': rms_mean
-        }
-    elif not is_long and not is_peaky and spectral_flatness_mean > 0.5 and zcr_mean > 0.1:
+    # **Transient Count Rule**
+    # Samples with less than 3 transients are always One-Shots
+    if transient_count < 6:
         return False, transient_count, duration, transients_detected, autocorr_peaks, {
             'zcr_mean': zcr_mean,
             'spectral_flatness_mean': spectral_flatness_mean,
             'rms_mean': rms_mean
         }
-    else:
-        # Fallback based on duration
-        return is_long, transient_count, duration, transients_detected, autocorr_peaks, {
+
+    # Classification Logic
+
+    # **Loop Classification**
+    if is_long_loop(duration) and (has_repetition or is_periodic) and \
+       spectral_flatness_mean < 0.2 and zcr_mean < 0.08 and rms_mean > 0.03 and is_peaky:
+        return True, transient_count, duration, transients_detected, autocorr_peaks, {
             'zcr_mean': zcr_mean,
             'spectral_flatness_mean': spectral_flatness_mean,
             'rms_mean': rms_mean
         }
-    
+
+    # **Fallback: Scoring System with Adjusted Weights**
+    score_loop = 0
+    score_one_shot = 0
+
+    # Loop features
+    if is_long_loop(duration):
+        score_loop += 1
+    if has_repetition or is_periodic:
+        score_loop += 1
+    if spectral_flatness_mean < 0.2:
+        score_loop += 1
+    if zcr_mean < 0.08:
+        score_loop += 1
+    if rms_mean > 0.03:
+        score_loop += 1
+    if is_peaky:
+        score_loop += 1
+
+    # One-Shot features
+    if not is_long_loop(duration):
+        score_one_shot += 1
+    if not (has_repetition or is_periodic):
+        score_one_shot += 1
+    if spectral_flatness_mean > 0.2:
+        score_one_shot += 1
+    if zcr_mean > 0.08:
+        score_one_shot += 1
+    if rms_mean < 0.03:
+        score_one_shot += 1
+    if not is_peaky:
+        score_one_shot += 1
+
+    # Decide based on higher score
+    if score_loop > score_one_shot:
+        classification = True
+    else:
+        classification = False
+
+    return classification, transient_count, duration, transients_detected, autocorr_peaks, {
+        'zcr_mean': zcr_mean,
+        'spectral_flatness_mean': spectral_flatness_mean,
+        'rms_mean': rms_mean
+    }
+
+def is_long_loop(duration, threshold=2.0):
+    """
+    Determine if the duration qualifies as a long loop.
+    """
+    return duration > threshold
+
 def analyze_transient_periodicity(transient_times, threshold=0.2):
     """
     Analyze the intervals between transients to determine if they are periodic.
@@ -111,11 +157,11 @@ def analyze_transient_periodicity(transient_times, threshold=0.2):
     """
     if len(transient_times) < 3:
         return False  # Not enough transients to analyze periodicity
-    
+
     intervals = np.diff(transient_times)
     mean_interval = np.mean(intervals)
     std_interval = np.std(intervals)
-    
+
     # If the standard deviation is small relative to the mean, intervals are consistent
     return (std_interval / mean_interval) < threshold
 
@@ -191,8 +237,8 @@ def process_audio_file(file_path, logger, visualize, plot_dir, buffer_ms=50, hop
         classification = "Loop" if is_loop_flag else "One-Shot"
         logger.info(
             f"{file_path} | Classification: {classification} | Transients: {transient_count} | "
-            f"Duration: {duration:.2f}s | ZCR: {features['zcr_mean']:.4f} | "
-            f"Spectral Flatness: {features['spectral_flatness_mean']:.4f} | RMS: {features['rms_mean']:.4f}"
+            f"Duration: {duration:.2f}s | ZCR: {features['zcr_mean']:.6f} | "
+            f"Spectral Flatness: {features['spectral_flatness_mean']:.6f} | RMS: {features['rms_mean']:.6f}"
         )
 
         # Visualization
