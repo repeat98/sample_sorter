@@ -7,7 +7,6 @@ from scipy.signal import find_peaks, correlate
 import logging
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import shutil  # For copying mismatched files
 
 def normalize_audio(y):
     """
@@ -165,7 +164,7 @@ def analyze_transient_periodicity(transient_times, threshold=0.2):
     # If the standard deviation is small relative to the mean, intervals are consistent
     return (std_interval / mean_interval) < threshold
 
-def plot_visualization(file_path, y, sr, y_normalized, transients, autocorr, autocorr_peaks, classification, output_dir):
+def plot_visualization(file_path, y, sr, y_normalized, transients, autocorr, autocorr_peaks, classification, output_dir, input_folder):
     """
     Generate and save visualization plots for the audio file.
     """
@@ -194,7 +193,7 @@ def plot_visualization(file_path, y, sr, y_normalized, transients, autocorr, aut
     plt.subplot(3, 1, 3)
     autocorr_time = np.linspace(0, len(autocorr) / sr, num=len(autocorr))
     plt.plot(autocorr_time, autocorr, label='Autocorrelation')
-    autocorr_peaks_times = librosa.frames_to_time(autocorr_peaks, sr=sr, hop_length=512)
+    autocorr_peaks_times = autocorr_peaks / sr  # Convert sample indices to time
     plt.plot(autocorr_peaks_times, autocorr[autocorr_peaks], 'x', color='red', label='Autocorr Peaks')
     plt.title('Autocorrelation')
     plt.xlabel('Lag Time (s)')
@@ -202,12 +201,12 @@ def plot_visualization(file_path, y, sr, y_normalized, transients, autocorr, aut
     plt.legend()
 
     # Add Classification Text
-    plt.suptitle(f'File: {os.path.basename(file_path)} | Classification: {classification}', fontsize=16, y=0.95)
+    plt.suptitle(f'File: {os.path.basename(file_path)} | Classification: {"Loop" if classification else "One-Shot"}', fontsize=16, y=0.95)
 
     plt.tight_layout(rect=[0, 0, 1, 0.93])
 
     # Prepare output path
-    relative_path = os.path.relpath(file_path, start=plot_visualization.base_input_folder)
+    relative_path = os.path.relpath(file_path, start=input_folder)
     plot_filename = os.path.splitext(relative_path.replace(os.sep, '_'))[0] + '.png'
     plot_path = os.path.join(output_dir, plot_filename)
 
@@ -218,9 +217,9 @@ def plot_visualization(file_path, y, sr, y_normalized, transients, autocorr, aut
     plt.savefig(plot_path)
     plt.close()
 
-def process_audio_file(file_path, logger, visualize, plot_dir, buffer_ms=50, hop_length=512):
+def process_audio_file(file_path, logger, buffer_ms=50, hop_length=512):
     """
-    Process a single audio file: normalize, classify, and optionally visualize.
+    Process a single audio file: normalize, classify, and return necessary data.
     """
     try:
         # Load audio
@@ -241,31 +240,17 @@ def process_audio_file(file_path, logger, visualize, plot_dir, buffer_ms=50, hop
             f"Spectral Flatness: {features['spectral_flatness_mean']:.6f} | RMS: {features['rms_mean']:.6f}"
         )
 
-        # Visualization
-        if visualize:
-            # Recompute autocorrelation for plotting
-            autocorr = correlate(y_normalized, y_normalized, mode='full')
-            autocorr = autocorr[len(autocorr)//2:]
-            # Find peaks in autocorrelation above 30% of the maximum autocorr value
-            peak_height = np.max(autocorr) * 0.3
-            autocorr_peaks_plot, _ = find_peaks(autocorr, height=peak_height)
-            # Plot and save
-            plot_visualization(
-                file_path=file_path,
-                y=y,
-                sr=sr,
-                y_normalized=y_normalized,
-                transients=transients_detected,
-                autocorr=autocorr,
-                autocorr_peaks=autocorr_peaks_plot,
-                classification=classification,
-                output_dir=plot_dir
-            )
+        # Compute autocorrelation for plotting
+        autocorr = correlate(y_normalized, y_normalized, mode='full')
+        autocorr = autocorr[len(autocorr)//2:]
+        # Find peaks in autocorrelation above 30% of the maximum autocorr value
+        peak_height = np.max(autocorr) * 0.3
+        autocorr_peaks_plot, _ = find_peaks(autocorr, height=peak_height)
 
-        return is_loop_flag, features, transient_count
+        return is_loop_flag, features, transient_count, y, sr, y_normalized, transients_detected, autocorr, autocorr_peaks_plot
     except Exception as e:
         logger.error(f"Error processing {file_path}: {e}")
-        return None, None, None
+        return None, None, None, None, None, None, None, None, None
 
 def setup_logging(output_file):
     """
@@ -317,14 +302,12 @@ def main():
     """
     Main function to parse arguments and process audio files.
     """
-    parser = argparse.ArgumentParser(description="Classify audio files as Loops or One-Shots with Visualization.")
+    parser = argparse.ArgumentParser(description="Classify audio files as Loops or One-Shots with Visualization of Mismatches.")
     parser.add_argument('input_folder', type=str, help='Path to the input folder containing audio files.')
     parser.add_argument('--output', type=str, default='output.log', help='Path to the output log file.')
-    parser.add_argument('--visualize', action='store_true', help='Enable visualization of processing steps.')
     parser.add_argument('--plot_dir', type=str, default='plots', help='Directory to save visualization plots.')
     parser.add_argument('--buffer_ms', type=int, default=50, help='Buffer time in milliseconds between transients.')
     parser.add_argument('--hop_length', type=int, default=512, help='Hop length for transient detection.')
-    parser.add_argument('--mismatched_dir', type=str, default='mismatched_files', help='Directory to store mismatched files.')
     parser.add_argument('--mismatches_log', type=str, default='mismatches.log', help='File to log mismatched files and their features.')
     args = parser.parse_args()
 
@@ -348,14 +331,10 @@ def main():
         print("No audio files found in the specified input folder.")
         return
 
-    # If visualization is enabled, set a base input folder for plotting
-    if args.visualize:
-        plot_visualization.base_input_folder = args.input_folder
-        # Ensure the plot directory exists
-        os.makedirs(args.plot_dir, exist_ok=True)
-
-    # Ensure the mismatched files directory exists
-    os.makedirs(args.mismatched_dir, exist_ok=True)
+    # Set a base input folder for plotting
+    plot_visualization_base_input = args.input_folder
+    # Ensure the plot directory exists
+    os.makedirs(args.plot_dir, exist_ok=True)
 
     # Initialize counters for summary
     loop_count = 0
@@ -367,11 +346,9 @@ def main():
 
     # Process files with a progress bar
     for file_path in tqdm(audio_files, desc="Processing Audio Files", unit="file"):
-        classification, features, transient_count = process_audio_file(
+        classification, features, transient_count, y, sr, y_normalized, transients_detected, autocorr, autocorr_peaks = process_audio_file(
             file_path=file_path,
             logger=logger,
-            visualize=args.visualize,
-            plot_dir=args.plot_dir,
             buffer_ms=args.buffer_ms,
             hop_length=args.hop_length
         )
@@ -395,16 +372,24 @@ def main():
                 correct_classifications += 1
             else:
                 # Mismatched file
-                # Copy file to mismatched directory
-                relative_path = os.path.relpath(file_path, start=args.input_folder)
-                mismatched_file_path = os.path.join(args.mismatched_dir, relative_path)
-                os.makedirs(os.path.dirname(mismatched_file_path), exist_ok=True)
-                shutil.copy2(file_path, mismatched_file_path)
-
                 # Log mismatched file, features, and number of transients
                 mismatches_logger.info(
                     f"{file_path} | Ground Truth: {ground_truth_label} | Predicted: {predicted_label} | "
                     f"Transients: {transient_count} | Features: {features}"
+                )
+
+                # Plot and save visualization for mismatched file
+                plot_visualization(
+                    file_path=file_path,
+                    y=y,
+                    sr=sr,
+                    y_normalized=y_normalized,
+                    transients=transients_detected,
+                    autocorr=autocorr,
+                    autocorr_peaks=autocorr_peaks,
+                    classification=classification,
+                    output_dir=args.plot_dir,
+                    input_folder=plot_visualization_base_input
                 )
         else:
             unknown_label_count +=1
@@ -438,10 +423,8 @@ def main():
     print(f"Total Unknown Labels: {unknown_label_count}")
     print(f"Correct Classifications: {correct_classifications}")
     print(f"Accuracy: {accuracy:.2f}%")
-    if args.visualize:
-        print(f"Visualization plots saved to: {args.plot_dir}")
+    print(f"Visualization plots for mismatched files saved to: {args.plot_dir}")
     print(f"Detailed log saved to: {args.output}")
-    print(f"Mismatched files copied to: {args.mismatched_dir}")
     print(f"Mismatched files log saved to: {args.mismatches_log}")
 
 if __name__ == "__main__":

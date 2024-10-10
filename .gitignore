@@ -16,4 +16,4 @@ train_sm/
 __pycache__/
 train_sm2/
 plots/
-mismatched_files/
+mismatched_plots/
