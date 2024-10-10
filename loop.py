@@ -7,6 +7,7 @@ from scipy.signal import find_peaks, correlate
 import logging
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import shutil  # Added for copying mismatched files
 
 def normalize_audio(y):
     """
@@ -29,7 +30,7 @@ def detect_transients(y, sr, buffer_ms=50, hop_length=512, threshold=0.7):
     # Compute onset envelope
     onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
     # Normalize onset envelope
-    onset_env = onset_env / np.max(onset_env)
+    onset_env = onset_env / np.max(onset_env) if np.max(onset_env) != 0 else onset_env
     # Find peaks in the onset envelope
     distance_in_frames = int(buffer_ms * sr / (1000 * hop_length))
     peak_indices, _ = find_peaks(onset_env, height=threshold, distance=distance_in_frames)
@@ -40,7 +41,7 @@ def detect_transients(y, sr, buffer_ms=50, hop_length=512, threshold=0.7):
 def is_loop(y, sr, buffer_ms=50, hop_length=512):
     """
     Analyze the audio features to determine if it's a loop or one-shot.
-    Returns a tuple (is_loop_flag, transient_count, duration, transient_times, autocorr_peaks_times).
+    Returns a tuple (is_loop_flag, transient_count, duration, transients_detected, autocorr_peaks_times, features).
     """
     # Feature Extraction
 
@@ -215,10 +216,10 @@ def process_audio_file(file_path, logger, visualize, plot_dir, buffer_ms=50, hop
                 output_dir=plot_dir
             )
 
-        return is_loop_flag
+        return is_loop_flag, features, transient_count
     except Exception as e:
         logger.error(f"Error processing {file_path}: {e}")
-        return None
+        return None, None, None
 
 def setup_logging(output_file):
     """
@@ -238,6 +239,34 @@ def setup_logging(output_file):
     logging.getLogger().addHandler(console)
     return logging.getLogger()
 
+def setup_mismatches_logging(mismatches_file):
+    """
+    Set up logging for mismatched files to a separate file.
+    """
+    mismatches_logger = logging.getLogger('mismatches')
+    mismatches_logger.setLevel(logging.INFO)
+    # Create file handler
+    fh = logging.FileHandler(mismatches_file, mode='w')
+    fh.setLevel(logging.INFO)
+    # Create formatter and add it to the handlers
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    # Add the handler to the logger
+    mismatches_logger.addHandler(fh)
+    return mismatches_logger
+
+def get_ground_truth_label(file_path):
+    """
+    Extracts the ground truth label from the file path based on 'loop' or 'oneshot' substring.
+    """
+    file_path_lower = file_path.lower()
+    if 'loop' in file_path_lower:
+        return 'Loop'
+    elif 'oneshot' in file_path_lower or 'one-shot' in file_path_lower:
+        return 'One-Shot'
+    else:
+        return None  # Unknown label
+
 def main():
     """
     Main function to parse arguments and process audio files.
@@ -249,9 +278,13 @@ def main():
     parser.add_argument('--plot_dir', type=str, default='plots', help='Directory to save visualization plots.')
     parser.add_argument('--buffer_ms', type=int, default=50, help='Buffer time in milliseconds between transients.')
     parser.add_argument('--hop_length', type=int, default=512, help='Hop length for transient detection.')
+    parser.add_argument('--mismatched_dir', type=str, default='mismatched_files', help='Directory to store mismatched files.')
+    parser.add_argument('--mismatches_log', type=str, default='mismatches.log', help='File to log mismatched files and their features.')
     args = parser.parse_args()
 
     logger = setup_logging(args.output)
+    mismatches_logger = setup_mismatches_logging(args.mismatches_log)
+
     logger.info("Starting audio classification...")
 
     supported_extensions = ('.wav', '.mp3', '.flac', '.ogg', '.aiff', '.aac', '.wma', '.alac')
@@ -275,15 +308,20 @@ def main():
         # Ensure the plot directory exists
         os.makedirs(args.plot_dir, exist_ok=True)
 
+    # Ensure the mismatched files directory exists
+    os.makedirs(args.mismatched_dir, exist_ok=True)
+
     # Initialize counters for summary
     loop_count = 0
     one_shot_count = 0
     error_count = 0
+    correct_classifications = 0
+    unknown_label_count = 0
     total_files = len(audio_files)
 
     # Process files with a progress bar
     for file_path in tqdm(audio_files, desc="Processing Audio Files", unit="file"):
-        classification = process_audio_file(
+        classification, features, transient_count = process_audio_file(
             file_path=file_path,
             logger=logger,
             visualize=args.visualize,
@@ -291,31 +329,74 @@ def main():
             buffer_ms=args.buffer_ms,
             hop_length=args.hop_length
         )
-        if classification is True:
+
+        if classification is None:
+            error_count += 1
+            continue  # Skip further processing if there was an error
+
+        predicted_label = "Loop" if classification else "One-Shot"
+
+        if classification:
             loop_count +=1
-        elif classification is False:
-            one_shot_count +=1
         else:
-            error_count +=1
+            one_shot_count +=1
+
+        # Extract ground truth label from file path
+        ground_truth_label = get_ground_truth_label(file_path)
+
+        if ground_truth_label is not None:
+            if predicted_label == ground_truth_label:
+                correct_classifications += 1
+            else:
+                # Mismatched file
+                # Copy file to mismatched directory
+                relative_path = os.path.relpath(file_path, start=args.input_folder)
+                mismatched_file_path = os.path.join(args.mismatched_dir, relative_path)
+                os.makedirs(os.path.dirname(mismatched_file_path), exist_ok=True)
+                shutil.copy2(file_path, mismatched_file_path)
+
+                # Log mismatched file, features, and number of transients
+                mismatches_logger.info(
+                    f"{file_path} | Ground Truth: {ground_truth_label} | Predicted: {predicted_label} | "
+                    f"Transients: {transient_count} | Features: {features}"
+                )
+        else:
+            unknown_label_count +=1
+
+    total_files_with_known_labels = total_files - unknown_label_count
+    if total_files_with_known_labels > 0:
+        accuracy = correct_classifications / total_files_with_known_labels * 100
+    else:
+        accuracy = 0.0
 
     # Log summary
     logger.info("========== Summary ==========")
     logger.info(f"Total Files Processed: {total_files}")
+    logger.info(f"Total Files with Known Labels: {total_files_with_known_labels}")
     logger.info(f"Total Loops: {loop_count}")
     logger.info(f"Total One-Shots: {one_shot_count}")
     logger.info(f"Total Errors: {error_count}")
+    logger.info(f"Total Unknown Labels: {unknown_label_count}")
+    logger.info(f"Correct Classifications: {correct_classifications}")
+    logger.info(f"Accuracy: {accuracy:.2f}%")
     logger.info("Audio classification completed.")
 
     # Print summary to console
     print("\nAudio classification completed.")
     print("============================")
     print(f"Total Files Processed: {total_files}")
+    print(f"Total Files with Known Labels: {total_files_with_known_labels}")
     print(f"Total Loops: {loop_count}")
     print(f"Total One-Shots: {one_shot_count}")
     print(f"Total Errors: {error_count}")
+    print(f"Total Unknown Labels: {unknown_label_count}")
+    print(f"Correct Classifications: {correct_classifications}")
+    print(f"Accuracy: {accuracy:.2f}%")
     if args.visualize:
         print(f"Visualization plots saved to: {args.plot_dir}")
     print(f"Detailed log saved to: {args.output}")
+    print(f"Mismatched files copied to: {args.mismatched_dir}")
+    print(f"Mismatched files log saved to: {args.mismatches_log}")
 
 if __name__ == "__main__":
     main()
