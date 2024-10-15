@@ -17,7 +17,7 @@ import hashlib
 
 # --------------------------- Parameters ---------------------------
 
-DATASET_PATH = "train_sm/"  # Update this path as needed
+DATASET_PATH = "train"  # Update this path as needed
 SAMPLE_RATE = 22050  # Sampling rate for audio
 DURATION = 2  # Duration to which all audio files will be truncated or padded
 SAMPLES_PER_TRACK = SAMPLE_RATE * DURATION
